@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using Microsoft.Maui.Layouts;
+using Microsoft.Maui.Controls; // PointerGestureRecognizer 在此命名空间中
 
 namespace blender_selecter;
 
@@ -18,19 +20,57 @@ public partial class MainPage : ContentPage
     {
         InitializeComponent();
         
-        // 注册触摸事件
+        // 使用 .NET MAUI 9.0 的新 PointerGestureRecognizer
+        var pointerGestureRecognizer = new PointerGestureRecognizer();
+        pointerGestureRecognizer.PointerPressed += OnOverlayPointerPressed;
+        pointerGestureRecognizer.PointerMoved += OnOverlayPointerMoved;
+        pointerGestureRecognizer.PointerReleased += OnOverlayPointerReleased;
+        OverlayLayout.GestureRecognizers.Add(pointerGestureRecognizer);
+
+        // 注册点击手势用于取消正在进行的绘制
         var tapGestureRecognizer = new TapGestureRecognizer();
         tapGestureRecognizer.Tapped += OnImageTapped;
         OverlayLayout.GestureRecognizers.Add(tapGestureRecognizer);
-        
-        var panGestureRecognizer = new PanGestureRecognizer();
-        panGestureRecognizer.PanUpdated += OnImagePanUpdated;
-        OverlayLayout.GestureRecognizers.Add(panGestureRecognizer);
         
         // 如果从命令行传入了图片路径，则自动加载
         if (!string.IsNullOrEmpty(ImagePathFromArgs))
         {
             LoadImageFromPath(ImagePathFromArgs);
+        }
+    }
+
+    private void OnOverlayPointerPressed(object? sender, PointerEventArgs e)
+    {
+        // 获取相对于OverlayLayout的触摸点坐标
+        var touchPoint = e.GetPosition(OverlayLayout);
+        if (touchPoint.HasValue)
+        {
+            // 手指按下，开始绘制
+            HandleTouchStart(touchPoint.Value.X, touchPoint.Value.Y);
+        }
+    }
+
+    private void OnOverlayPointerMoved(object? sender, PointerEventArgs e)
+    {
+        // 只有在绘制状态下才处理移动事件
+        if (isDrawing)
+        {
+            var touchPoint = e.GetPosition(OverlayLayout);
+            if (touchPoint.HasValue)
+            {
+                // 手指移动，更新选框
+                HandleTouchMove(touchPoint.Value.X, touchPoint.Value.Y);
+            }
+        }
+    }
+
+    private void OnOverlayPointerReleased(object? sender, PointerEventArgs e)
+    {
+        // 只有在绘制状态下才处理释放事件
+        if (isDrawing)
+        {
+            // 手指抬起，完成绘制
+            HandleTouchEnd();
         }
     }
 
@@ -82,10 +122,6 @@ public partial class MainPage : ContentPage
             // 加载图像
             MainImage.Source = ImageSource.FromFile(selectedImagePath);
             
-            // 设置覆盖层尺寸
-            OverlayLayout.WidthRequest = imageWidth;
-            OverlayLayout.HeightRequest = imageHeight;
-            
             // 显示选择区域相关控件
             OnPropertyChanged(nameof(IsImageSelected));
             ClearSelectionsButton.IsEnabled = true;
@@ -93,6 +129,19 @@ public partial class MainPage : ContentPage
             
             // 清除之前的选框
             ClearSelections();
+            
+            // 等待布局完成后再设置覆盖层尺寸
+            await Task.Delay(100); // 给UI一些时间来布局
+            
+            this.Dispatcher.Dispatch(() =>
+            {
+                // 设置覆盖层尺寸，与图片显示区域一致
+                var imageBounds = GetImageDisplayBounds();
+                OverlayLayout.WidthRequest = imageBounds.Width;
+                OverlayLayout.HeightRequest = imageBounds.Height;
+                OverlayLayout.TranslationX = imageBounds.X;
+                OverlayLayout.TranslationY = imageBounds.Y;
+            });
         }
         catch (Exception ex)
         {
@@ -114,31 +163,18 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void OnImagePanUpdated(object? sender, PanUpdatedEventArgs e)
-    {
-        switch (e.StatusType)
-        {
-            case GestureStatus.Started:
-                HandleTouchStart(e.TotalX, e.TotalY);
-                break;
-            case GestureStatus.Running:
-                HandleTouchMove(e.TotalX, e.TotalY);
-                break;
-            case GestureStatus.Completed:
-                HandleTouchEnd();
-                break;
-            case GestureStatus.Canceled:
-                HandleTouchCancel();
-                break;
-        }
-    }
-
     private void HandleTouchStart(double x, double y)
     {
         if (!string.IsNullOrEmpty(selectedImagePath))
         {
             isDrawing = true;
-            startPoint = new Point(x, y);
+            
+            // 限制起始点在图片显示区域内
+            var imageBounds = GetImageDisplayBounds();
+            startPoint = new Point(
+                Math.Max(0, Math.Min(x, imageBounds.Width)),
+                Math.Max(0, Math.Min(y, imageBounds.Height))
+            );
             endPoint = startPoint;
             
             // 创建新的选框
@@ -149,9 +185,9 @@ public partial class MainPage : ContentPage
                 StrokeThickness = 2,
             };
             
-            // 设置初始位置和大小为0
-            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(startPoint.X, startPoint.Y, 0, 0));
-            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutFlags(currentBox, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
+            // 设置初始位置和大小
+            AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(startPoint.X, startPoint.Y, 0, 0));
+            AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
             
             OverlayLayout.Children.Add(currentBox);
         }
@@ -161,7 +197,12 @@ public partial class MainPage : ContentPage
     {
         if (isDrawing && currentBox != null)
         {
-            endPoint = new Point(x, y);
+            // 限制移动点在图片显示区域内
+            var imageBounds = GetImageDisplayBounds();
+            endPoint = new Point(
+                Math.Max(0, Math.Min(x, imageBounds.Width)),
+                Math.Max(0, Math.Min(y, imageBounds.Height))
+            );
             
             // 计算矩形框的位置和大小
             double left = Math.Min(startPoint.X, endPoint.X);
@@ -170,8 +211,8 @@ public partial class MainPage : ContentPage
             double height = Math.Abs(endPoint.Y - startPoint.Y);
             
             // 更新框的位置和大小
-            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
-            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutFlags(currentBox, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
+            AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
+            AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
         }
     }
 
@@ -180,6 +221,9 @@ public partial class MainPage : ContentPage
         if (isDrawing && currentBox != null)
         {
             isDrawing = false;
+            
+            // 获取图片显示的实际尺寸和位置
+            var imageBounds = GetImageDisplayBounds();
             
             // 计算最终的框坐标
             double left = Math.Min(startPoint.X, endPoint.X);
@@ -190,19 +234,19 @@ public partial class MainPage : ContentPage
             // 只有当框足够大时才保留
             if (width > 10 && height > 10)
             {
-                // 保存选框信息
+                // 计算缩放比例
+                double scaleX = imageWidth / imageBounds.Width;
+                double scaleY = imageHeight / imageBounds.Height;
+
+                // 保存选框信息（相对于原始图片的坐标）
                 var selection = new BoxSelection
                 {
-                    X1 = left,
-                    Y1 = top,
-                    X2 = left + width,
-                    Y2 = top + height
+                    X1 = left * scaleX,
+                    Y1 = top * scaleY,
+                    X2 = (left + width) * scaleX,
+                    Y2 = (top + height) * scaleY
                 };
                 selections.Add(selection);
-                
-                // 设置框的最终位置和大小
-                Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
-                Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutFlags(currentBox, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
                 
                 // 创建新的框用于后续绘制
                 currentBox = null;
@@ -303,6 +347,44 @@ public partial class MainPage : ContentPage
     }
     
     public bool IsImageSelected => !string.IsNullOrEmpty(selectedImagePath);
+
+    /// <summary>
+    /// 获取图片在屏幕上显示的实际位置和尺寸
+    /// </summary>
+    /// <returns>图片显示的边界矩形</returns>
+    private Rect GetImageDisplayBounds()
+    {
+        // 获取图片控件的尺寸
+        double imageControlWidth = MainImage.Width;
+        double imageControlHeight = MainImage.Height;
+
+        // 如果控件尺寸未初始化，使用默认值
+        if (imageControlWidth <= 0 || imageControlHeight <= 0)
+        {
+            imageControlWidth = 400; // 与XAML中Grid的HeightRequest一致
+            imageControlHeight = 400;
+        }
+
+        // 获取原始图片的尺寸
+        double originalImageWidth = imageWidth;
+        double originalImageHeight = imageHeight;
+
+        // 计算缩放比例（AspectFit模式）
+        double scaleX = imageControlWidth / originalImageWidth;
+        double scaleY = imageControlHeight / originalImageHeight;
+        double scale = Math.Min(scaleX, scaleY);
+
+        // 计算显示后的图片尺寸
+        double displayWidth = originalImageWidth * scale;
+        double displayHeight = originalImageHeight * scale;
+
+        // 计算图片在控件中的偏移（居中显示）
+        double offsetX = (imageControlWidth - displayWidth) / 2;
+        double offsetY = (imageControlHeight - displayHeight) / 2;
+
+        // 返回图片在覆盖层中的实际显示区域
+        return new Rect(offsetX, offsetY, displayWidth, displayHeight);
+    }
 }
 
 public class BoxSelection
