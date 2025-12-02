@@ -17,13 +17,31 @@
                     BackgroundColor="#007ACC"
                     TextColor="White"/>
 
-            <Border Stroke="LightGray" 
-                    StrokeThickness="1"
-                    IsVisible="{Binding IsImageSelected}">
-                <Image x:Name="MainImage" 
-                       Aspect="AspectFit"
-                       HeightRequest="300"/>
-            </Border>
+            <Label Text="Draw boxes on image to select areas" 
+                   IsVisible="{Binding IsImageSelected}"
+                   HorizontalOptions="Center"/>
+
+            <Grid x:Name="ImageGrid" 
+                  IsVisible="{Binding IsImageSelected}"
+                  HeightRequest="400">
+                <Border Stroke="LightGray" 
+                        StrokeThickness="1">
+                    <Image x:Name="MainImage" 
+                           Aspect="AspectFit"
+                           HeightRequest="400"/>
+                </Border>
+                
+                <AbsoluteLayout x:Name="OverlayLayout"
+                                BackgroundColor="Transparent"
+                                IsVisible="{Binding IsImageSelected}"/>
+            </Grid>
+
+            <Button Text="Clear Selections" 
+                    Clicked="OnClearSelectionsClicked"
+                    x:Name="ClearSelectionsButton"
+                    BackgroundColor="#FF3333"
+                    TextColor="White"
+                    IsEnabled="False"/>
 
             <Button Text="Send to Server" 
                     Clicked="OnSendToServerClicked"

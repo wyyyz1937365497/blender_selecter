@@ -1,14 +1,18 @@
-namespace blender_selecter;
+using Microsoft.Maui.Controls.Hosting;
+using Microsoft.Maui.Hosting;
 
-public partial class App : Application
+namespace blender_selecter
 {
-    public App(string[] args)
+    public partial class App : Application
     {
-        InitializeComponent();
-    }
+        public App()
+        {
+            InitializeComponent();
+        }
 
-    protected override Window CreateWindow(IActivationState? activationState)
-    {
-        return new Window(new MainPage());
+        protected override Window CreateWindow(IActivationState? activationState)
+        {
+            return new Window(new MainPage());
+        }
     }
 }

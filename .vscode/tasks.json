@@ -1,0 +1,52 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "command": "dotnet",
+      "type": "shell",
+      "args": [
+        "build",
+        "${workspaceFolder}/blender_selecter.csproj",
+        "-c",
+        "Debug",
+        "-f",
+        "net9.0-windows10.0.19041.0"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "publish-win-x64",
+      "command": "dotnet",
+      "type": "shell",
+      "args": [
+        "publish",
+        "${workspaceFolder}/blender_selecter.csproj",
+        "-c",
+        "Release",
+        "-f",
+        "net9.0-windows10.0.19041.0",
+        "-r",
+        "win-x64",
+        "--self-contained",
+        "true",
+        "-p:WindowsPackageType=None"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "silent",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}
