@@ -28,27 +28,32 @@
                         StrokeThickness="1">
                     <Image x:Name="MainImage" 
                            Aspect="AspectFit"
-                           HeightRequest="400"/>
+                           HorizontalOptions="Center"
+                           VerticalOptions="Center"/>
                 </Border>
                 
                 <AbsoluteLayout x:Name="OverlayLayout"
                                 BackgroundColor="Transparent"
-                                IsVisible="{Binding IsImageSelected}"/>
+                                IsVisible="{Binding IsImageSelected}"
+                                HorizontalOptions="Center"
+                                VerticalOptions="Center"/>
             </Grid>
 
-            <Button Text="Clear Selections" 
-                    Clicked="OnClearSelectionsClicked"
-                    x:Name="ClearSelectionsButton"
-                    BackgroundColor="#FF3333"
-                    TextColor="White"
-                    IsEnabled="False"/>
+            <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+                <Button Text="Clear Selections" 
+                        Clicked="OnClearSelectionsClicked"
+                        x:Name="ClearSelectionsButton"
+                        BackgroundColor="#FF3333"
+                        TextColor="White"
+                        IsEnabled="False"/>
 
-            <Button Text="Send to Server" 
-                    Clicked="OnSendToServerClicked"
-                    x:Name="SendToServerButton"
-                    BackgroundColor="#007ACC"
-                    TextColor="White"
-                    IsEnabled="False"/>
+                <Button Text="Send to Server" 
+                        Clicked="OnSendToServerClicked"
+                        x:Name="SendToServerButton"
+                        BackgroundColor="#007ACC"
+                        TextColor="White"
+                        IsEnabled="False"/>
+            </HorizontalStackLayout>
 
             <ActivityIndicator x:Name="LoadingIndicator" 
                                IsRunning="False" 

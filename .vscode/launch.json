@@ -29,7 +29,7 @@
       "id": "imagePath",
       "type": "promptString",
       "description": "Enter the path to the image file",
-      "default": "Resources/Images/dotnet_bot.png"
+      "default": "${workspaceFolder}/Resources/Images/dotnet_bot.png"
     }
   ]
 }

@@ -11,6 +11,8 @@ public partial class MainPage : ContentPage
     private bool isDrawing = false;
     private Border? currentBox;
     private ObservableCollection<BoxSelection> selections = new ObservableCollection<BoxSelection>();
+    private double imageWidth = 0;
+    private double imageHeight = 0;
 
     public MainPage()
     {
@@ -62,19 +64,40 @@ public partial class MainPage : ContentPage
         }
     }
     
-    private void LoadImageFromPath(string path)
+    private async void LoadImageFromPath(string path)
     {
         selectedImagePath = path;
-        MainImage.Source = ImageSource.FromFile(selectedImagePath);
         SelectImageButton.Text = Path.GetFileName(selectedImagePath);
         
-        // 显示选择区域相关控件
-        OnPropertyChanged(nameof(IsImageSelected));
-        ClearSelectionsButton.IsEnabled = true;
-        SendToServerButton.IsEnabled = true;
-        
-        // 清除之前的选框
-        ClearSelections();
+        try
+        {
+            // 获取图像尺寸
+            using (var stream = new FileStream(selectedImagePath, FileMode.Open, FileAccess.Read))
+            {
+                var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
+                imageWidth = image.Width;
+                imageHeight = image.Height;
+            }
+            
+            // 加载图像
+            MainImage.Source = ImageSource.FromFile(selectedImagePath);
+            
+            // 设置覆盖层尺寸
+            OverlayLayout.WidthRequest = imageWidth;
+            OverlayLayout.HeightRequest = imageHeight;
+            
+            // 显示选择区域相关控件
+            OnPropertyChanged(nameof(IsImageSelected));
+            ClearSelectionsButton.IsEnabled = true;
+            SendToServerButton.IsEnabled = true;
+            
+            // 清除之前的选框
+            ClearSelections();
+        }
+        catch (Exception ex)
+        {
+            await DisplayAlert("Error", $"Failed to load image: {ex.Message}", "OK");
+        }
     }
 
     private void OnImageTapped(object? sender, TappedEventArgs e)
@@ -126,17 +149,29 @@ public partial class MainPage : ContentPage
                 StrokeThickness = 2,
             };
             
+            // 设置初始位置和大小为0
+            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(startPoint.X, startPoint.Y, 0, 0));
+            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutFlags(currentBox, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
+            
             OverlayLayout.Children.Add(currentBox);
-            UpdateCurrentBox();
         }
     }
 
     private void HandleTouchMove(double x, double y)
     {
-        if (isDrawing)
+        if (isDrawing && currentBox != null)
         {
             endPoint = new Point(x, y);
-            UpdateCurrentBox();
+            
+            // 计算矩形框的位置和大小
+            double left = Math.Min(startPoint.X, endPoint.X);
+            double top = Math.Min(startPoint.Y, endPoint.Y);
+            double width = Math.Abs(endPoint.X - startPoint.X);
+            double height = Math.Abs(endPoint.Y - startPoint.Y);
+            
+            // 更新框的位置和大小
+            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
+            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutFlags(currentBox, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
         }
     }
 
@@ -191,22 +226,6 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private void UpdateCurrentBox()
-    {
-        if (currentBox != null && isDrawing)
-        {
-            // 计算位置和大小
-            double left = Math.Min(startPoint.X, endPoint.X);
-            double top = Math.Min(startPoint.Y, endPoint.Y);
-            double width = Math.Abs(endPoint.X - startPoint.X);
-            double height = Math.Abs(endPoint.Y - startPoint.Y);
-            
-            // 更新框的位置和大小
-            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
-            Microsoft.Maui.Controls.AbsoluteLayout.SetLayoutFlags(currentBox, Microsoft.Maui.Layouts.AbsoluteLayoutFlags.None);
-        }
-    }
-
     private async void OnSendToServerClicked(object sender, EventArgs e)
     {
         if (string.IsNullOrEmpty(selectedImagePath))
@@ -225,6 +244,8 @@ public partial class MainPage : ContentPage
             var requestData = new
             {
                 image_path = selectedImagePath,
+                image_width = imageWidth,
+                image_height = imageHeight,
                 selections = selections.Select(s => new { 
                     x1 = s.X1, 
                     y1 = s.Y1, 

@@ -24,9 +24,18 @@ namespace blender_selecter.WinUI
 
         protected override MauiApp CreateMauiApp() => MauiProgram.CreateMauiApp(Args ?? Array.Empty<string>());
 
-        protected override void OnLaunched(LaunchActivatedEventArgs args)
+        protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            Args = Environment.GetCommandLineArgs();
+            string[] commandLineArgs = Environment.GetCommandLineArgs();
+            // 第二个元素（索引为1）是图片路径参数
+            if (commandLineArgs.Length > 1)
+            {
+                Args = new string[] { commandLineArgs[1] };
+            }
+            else
+            {
+                Args = Array.Empty<string>();
+            }
             base.OnLaunched(args);
         }
     }
