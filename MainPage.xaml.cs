@@ -43,6 +43,9 @@ public partial class MainPage : ContentPage
         {
             LoadImageFromPath(ImagePathFromArgs);
         }
+        
+        // 初始化绑定上下文
+        BindingContext = this;
     }
 
     protected override void OnHandlerChanged()
@@ -126,6 +129,10 @@ public partial class MainPage : ContentPage
     {
         isImageLoading = true;
         selectedImagePath = imagePath;
+
+        // 清除之前的选框
+        ClearSelections();
+
         MainImage.Source = ImageSource.FromFile(imagePath);
         
         // 图片加载完成后调整尺寸
@@ -139,16 +146,39 @@ public partial class MainPage : ContentPage
             // 图片加载成功后移除事件监听器
             MainImage.SizeChanged -= OnMainImageSizeChanged;
             isImageLoading = false;
+
+            // 获取原始图片尺寸
+            try
+            {
+                if (MainImage.Source is FileImageSource)
+                {
+                    var stream = File.OpenRead(selectedImagePath);
+                    using var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
+                    imageWidth = image.Width;
+                    imageHeight = image.Height;
+                    stream.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting image dimensions: {ex.Message}");
+                // 设置默认值
+                imageWidth = MainImage.Width;
+                imageHeight = MainImage.Height;
+            }
             
 #if WINDOWS
             // 调整图片尺寸以适应窗口
             AdjustImageSize();
 #endif
+
+            // 更新按钮状态
+            ClearSelectionsButton.IsEnabled = true;
         }
     }
 
 #if WINDOWS
-    private void OnWindowSizeChanged(object sender, EventArgs e)
+    private void OnWindowSizeChanged(object? sender, EventArgs e)
     {
         if (MainImage.IsLoaded && !string.IsNullOrEmpty(selectedImagePath) && !isImageLoading)
         {
@@ -224,11 +254,7 @@ public partial class MainPage : ContentPage
 
     private void CancelDrawing()
     {
-        if (currentBox != null && OverlayLayout.Contains(currentBox))
-        {
-            OverlayLayout.Remove(currentBox);
-            currentBox = null;
-        }
+        RemoveCurrentBox();
         isDrawing = false;
     }
 
@@ -247,12 +273,29 @@ public partial class MainPage : ContentPage
             BackgroundColor = Colors.Transparent,
             Stroke = Colors.Red,
             StrokeThickness = 2,
-            StrokeDashArray = [2, 2]
+            StrokeDashArray = new DoubleCollection(new double[] { 2, 2 }) // 修复虚线数组初始化
         };
 
         // 设置初始位置和大小
         UpdateBoxPositionAndSize();
-        OverlayLayout.Add(currentBox);
+        
+        // 确保在UI线程上安全地操作UI元素
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                if (currentBox != null && !OverlayLayout.Contains(currentBox))
+                {
+                    OverlayLayout.Add(currentBox);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error adding box to overlay: {ex.Message}");
+                isDrawing = false;
+                currentBox = null;
+            }
+        });
     }
 
     private void HandleTouchMove(double x, double y)
@@ -282,29 +325,75 @@ public partial class MainPage : ContentPage
             double scaleY = imageHeight / imageBounds.Height;
 
             // 保存选框信息（相对于原始图片的坐标）
+            // 修正坐标映射，考虑图片在控件中的偏移
             var selection = new BoxSelection
             {
-                X1 = Math.Min(startPoint.X, endPoint.X) * scaleX,
-                Y1 = Math.Min(startPoint.Y, endPoint.Y) * scaleY,
-                X2 = Math.Max(startPoint.X, endPoint.X) * scaleX,
-                Y2 = Math.Max(startPoint.Y, endPoint.Y) * scaleY
+                X1 = (Math.Min(startPoint.X, endPoint.X) - imageBounds.X) * scaleX,
+                Y1 = (Math.Min(startPoint.Y, endPoint.Y) - imageBounds.Y) * scaleY,
+                X2 = (Math.Max(startPoint.X, endPoint.X) - imageBounds.X) * scaleX,
+                Y2 = (Math.Max(startPoint.Y, endPoint.Y) - imageBounds.Y) * scaleY
             };
             selections.Add(selection);
 
-            // 创建新的框用于后续绘制
-            currentBox = null;
+            // 启用发送按钮
+            SendToServerButton.IsEnabled = true;
+            
+            // 保留框在画布上
+            if (currentBox != null)
+            {
+                // 为已完成的框设置实心边框而不是虚线边框
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    try
+                    {
+                        currentBox.StrokeDashArray = null; // 使用实线边框
+                        currentBox.StrokeThickness = 2;
+                        
+                        // 为每个框设置不同颜色以便区分
+                        Color[] colors = { Colors.Red, Colors.Blue, Colors.Green, Colors.Yellow, Colors.Magenta, Colors.Cyan };
+                        int colorIndex = (selections.Count - 1) % colors.Length;
+                        currentBox.Stroke = colors[colorIndex];
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error updating completed box appearance: {ex.Message}");
+                    }
+                });
+            }
         }
         else
         {
-            // 否则删除临时框
-            if (currentBox != null)
-            {
-                OverlayLayout.Remove(currentBox);
-            }
+            // 删除太小的临时框
+            RemoveCurrentBox();
         }
 
         currentBox = null;
         isDrawing = false;
+    }
+    
+    private void RemoveCurrentBox()
+    {
+        if (currentBox != null)
+        {
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                try
+                {
+                    if (OverlayLayout.Contains(currentBox))
+                    {
+                        OverlayLayout.Remove(currentBox);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error removing box from overlay: {ex.Message}");
+                }
+                finally
+                {
+                    currentBox = null;
+                }
+            });
+        }
     }
 
     private void UpdateBoxPositionAndSize()
@@ -316,9 +405,26 @@ public partial class MainPage : ContentPage
         double width = Math.Abs(endPoint.X - startPoint.X);
         double height = Math.Abs(endPoint.Y - startPoint.Y);
 
-        // 设置边框的位置和大小
-        AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
-        AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
+        // 确保在UI线程上安全地操作UI元素
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                // 设置边框的位置和大小
+                AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
+                AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
+
+                // 确保边框可见
+                if (!OverlayLayout.Contains(currentBox))
+                {
+                    OverlayLayout.Add(currentBox);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating box position and size: {ex.Message}");
+            }
+        });
     }
 
     /// <summary>
@@ -358,11 +464,30 @@ public partial class MainPage : ContentPage
 
     private void HandleTouchCancel()
     {
+        // 只有在绘制状态下且存在当前绘制框时才进行移除
         if (isDrawing && currentBox != null)
         {
-            isDrawing = false;
-            OverlayLayout.Children.Remove(currentBox);
-            currentBox = null;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                try
+                {
+                    // 仅从布局中移除当前正在绘制的框，不影响已完成的框
+                    if (OverlayLayout.Contains(currentBox))
+                    {
+                        OverlayLayout.Remove(currentBox);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error handling touch cancel: {ex.Message}");
+                }
+                finally
+                {
+                    // 重置状态
+                    isDrawing = false;
+                    currentBox = null;
+                }
+            });
         }
     }
 
@@ -381,7 +506,13 @@ public partial class MainPage : ContentPage
             var imageData = new ImageSelectionData
             {
                 ImagePath = selectedImagePath,
-                Selections = selections.ToList()
+                Selections = selections.Select(s => new BoundingBox
+                {
+                    x1 = (int)Math.Round(Math.Min(s.X1, s.X2)),
+                    y1 = (int)Math.Round(Math.Min(s.Y1, s.Y2)),
+                    x2 = (int)Math.Round(Math.Max(s.X1, s.X2)),
+                    y2 = (int)Math.Round(Math.Max(s.Y1, s.Y2))
+                }).ToList()
             };
 
             // 发送到FastAPI服务器
@@ -394,11 +525,19 @@ public partial class MainPage : ContentPage
                 
                 if (responseObject != null && responseObject.ContainsKey("task_id"))
                 {
-                    string taskId = responseObject["task_id"].ToString();
-                    TaskIdLabel.Text = $"Task ID: {taskId}";
-                    TaskIdLabel.IsVisible = true;
-                    StatusMessage.Text = "Successfully sent to server!";
-                    Console.WriteLine($"TASK_ID:{taskId}");
+                    var taskIdObject = responseObject["task_id"];
+                    if (taskIdObject != null)
+                    {
+                        string taskId = taskIdObject.ToString();
+                        TaskIdLabel.Text = $"Task ID: {taskId}";
+                        TaskIdLabel.IsVisible = true;
+                        StatusMessage.Text = "Successfully sent to server!";
+                        Console.WriteLine($"TASK_ID:{taskId}");
+                    }
+                    else
+                    {
+                        StatusMessage.Text = "Sent to server but received unexpected response";
+                    }
                 }
                 else
                 {
@@ -425,43 +564,65 @@ public partial class MainPage : ContentPage
     private void OnClearSelectionsClicked(object sender, EventArgs e)
     {
         // 清除所有选框
-        selections.Clear();
-        OverlayLayout.Children.Clear();
-        ClearSelectionsButton.IsEnabled = false;
-        SendToServerButton.IsEnabled = false;
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                selections.Clear();
+                OverlayLayout.Children.Clear();
+                ClearSelectionsButton.IsEnabled = false;
+                SendToServerButton.IsEnabled = false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error clearing selections: {ex.Message}");
+            }
+        });
     }
     
     public bool IsImageSelected => !string.IsNullOrEmpty(selectedImagePath);
     
     private void ClearSelections()
     {
-        selections.Clear();
-        OverlayLayout.Children.Clear();
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                selections.Clear();
+                OverlayLayout.Children.Clear();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error clearing selections: {ex.Message}");
+            }
+        });
     }
 
     private async Task<HttpResponseMessage> SendToFastAPIServer(ImageSelectionData data)
     {
         try
         {
-            // 构造请求数据
-            var payload = new
-            {
-                image_path = data.ImagePath,
-                selections = data.Selections.Select(s => new
-                {
-                    x1 = Math.Min(s.StartPoint.X, s.EndPoint.X),
-                    y1 = Math.Min(s.StartPoint.Y, s.EndPoint.Y),
-                    x2 = Math.Max(s.StartPoint.X, s.EndPoint.X),
-                    y2 = Math.Max(s.StartPoint.Y, s.EndPoint.Y)
-                }).ToArray()
-            };
+            // 构造边界用于multipart/form-data
+            var boundary = "----" + DateTime.Now.Ticks.ToString("x");
+            var multipartContent = new MultipartFormDataContent(boundary);
 
-            // 序列化为JSON
-            string json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            // 添加文件
+            var fileBytes = File.ReadAllBytes(data.ImagePath);
+            var fileContent = new ByteArrayContent(fileBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            multipartContent.Add(fileContent, "file", Path.GetFileName(data.ImagePath));
+
+            // 添加分割模式
+            var segModeContent = new StringContent("box");
+            multipartContent.Add(segModeContent, "seg_mode");
+
+            // 添加边界框（转换为整数并序列化为JSON）
+            var boxesJson = JsonSerializer.Serialize(data.Selections);
+            var boxesContent = new StringContent(boxesJson, Encoding.UTF8, "application/json");
+            multipartContent.Add(boxesContent, "boxes_json");
 
             // 发送POST请求到FastAPI服务器
-            HttpResponseMessage response = await httpClient.PostAsync("http://localhost:8000/process", content);
+            HttpResponseMessage response = await httpClient.PostAsync("http://localhost:8000/process", multipartContent);
             return response;
         }
         catch (Exception ex)
@@ -495,8 +656,16 @@ public class BoxSelection
     }
 }
 
+public class BoundingBox
+{
+    public int x1 { get; set; }
+    public int y1 { get; set; }
+    public int x2 { get; set; }
+    public int y2 { get; set; }
+}
+
 public class ImageSelectionData
 {
-    public string? ImagePath { get; set; }
-    public List<BoxSelection> Selections { get; set; } = new List<BoxSelection>();
+    public string ImagePath { get; set; }
+    public List<BoundingBox> Selections { get; set; }
 }

@@ -35,9 +35,9 @@
             
             <AbsoluteLayout x:Name="OverlayLayout"
                             BackgroundColor="Transparent"
-                            IsVisible="{Binding IsImageSelected}"
-                            HorizontalOptions="Center"
-                            VerticalOptions="Center"/>
+                            HorizontalOptions="FillAndExpand"
+                            VerticalOptions="FillAndExpand"
+                            InputTransparent="False"/>
         </Grid>
 
         <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
