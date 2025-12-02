@@ -5,6 +5,8 @@ using Microsoft.Maui.Controls; // PointerGestureRecognizer 在此命名空间中
 using System.Net.Http;
 using System.Net;
 using System.Text;
+using System.Net.Http.Headers;
+using RestSharp;
 
 namespace blender_selecter;
 
@@ -25,7 +27,7 @@ public partial class MainPage : ContentPage
     public MainPage()
     {
         InitializeComponent();
-        
+
         // 使用 .NET MAUI 9.0 的新 PointerGestureRecognizer
         var pointerGestureRecognizer = new PointerGestureRecognizer();
         pointerGestureRecognizer.PointerPressed += OnOverlayPointerPressed;
@@ -37,13 +39,13 @@ public partial class MainPage : ContentPage
         var tapGestureRecognizer = new TapGestureRecognizer();
         tapGestureRecognizer.Tapped += OnImageTapped;
         OverlayLayout.GestureRecognizers.Add(tapGestureRecognizer);
-        
+
         // 如果从命令行传入了图片路径，则自动加载
         if (!string.IsNullOrEmpty(ImagePathFromArgs))
         {
             LoadImageFromPath(ImagePathFromArgs);
         }
-        
+
         // 初始化绑定上下文
         BindingContext = this;
     }
@@ -124,7 +126,7 @@ public partial class MainPage : ContentPage
             await DisplayAlert("Error", $"Failed to pick image: {ex.Message}", "OK");
         }
     }
-    
+
     private void LoadImageFromPath(string imagePath)
     {
         isImageLoading = true;
@@ -134,11 +136,11 @@ public partial class MainPage : ContentPage
         ClearSelections();
 
         MainImage.Source = ImageSource.FromFile(imagePath);
-        
+
         // 图片加载完成后调整尺寸
         MainImage.SizeChanged += OnMainImageSizeChanged;
     }
-    
+
     private void OnMainImageSizeChanged(object? sender, EventArgs e)
     {
         if (MainImage.IsLoaded && MainImage.Width > 0 && MainImage.Height > 0)
@@ -166,7 +168,7 @@ public partial class MainPage : ContentPage
                 imageWidth = MainImage.Width;
                 imageHeight = MainImage.Height;
             }
-            
+
 #if WINDOWS
             // 调整图片尺寸以适应窗口
             AdjustImageSize();
@@ -185,38 +187,38 @@ public partial class MainPage : ContentPage
             AdjustImageSize();
         }
     }
-    
+
     private void AdjustImageSize()
     {
         if (Window == null) return;
-        
+
         // 使用Dispatcher确保在UI线程上执行
         MainThread.BeginInvokeOnMainThread(() =>
         {
             // 动态计算除了图片区域外的其他控件所需高度
             double otherControlsHeight = 0;
-            
+
             // 获取页面根布局的padding
             var rootLayout = this.Content as VerticalStackLayout;
             if (rootLayout != null)
             {
                 otherControlsHeight += rootLayout.Padding.Top + rootLayout.Padding.Bottom;
             }
-            
+
             // 加上控件间的间距
             otherControlsHeight += rootLayout?.Spacing * 8 ?? 15 * 8; // 大约8个间距
-            
+
             // 加上可见控件的大致高度
             otherControlsHeight += SelectImageButton.HeightRequest > 0 ? SelectImageButton.HeightRequest : 45;
             otherControlsHeight += ClearSelectionsButton.HeightRequest > 0 ? ClearSelectionsButton.HeightRequest : 45;
             otherControlsHeight += LoadingIndicator.HeightRequest > 0 ? LoadingIndicator.HeightRequest : 40;
-            
+
             // 加上标签的大致高度
             otherControlsHeight += 25 * 4; // 四个标签的高度
-            
+
             // 计算可用于图片的垂直空间（留出一些边距）
             double availableHeight = Window.Height - otherControlsHeight - 20;
-            
+
             // 设置一个合理的最小高度和最大高度
             if (availableHeight > 300)
             {
@@ -230,7 +232,7 @@ public partial class MainPage : ContentPage
             {
                 ImageGrid.HeightRequest = 400;
             }
-            
+
             ImageGrid.InvalidateMeasure();
         });
     }
@@ -278,7 +280,7 @@ public partial class MainPage : ContentPage
 
         // 设置初始位置和大小
         UpdateBoxPositionAndSize();
-        
+
         // 确保在UI线程上安全地操作UI元素
         MainThread.BeginInvokeOnMainThread(() =>
         {
@@ -337,7 +339,7 @@ public partial class MainPage : ContentPage
 
             // 启用发送按钮
             SendToServerButton.IsEnabled = true;
-            
+
             // 保留框在画布上
             if (currentBox != null)
             {
@@ -348,7 +350,7 @@ public partial class MainPage : ContentPage
                     {
                         currentBox.StrokeDashArray = null; // 使用实线边框
                         currentBox.StrokeThickness = 2;
-                        
+
                         // 为每个框设置不同颜色以便区分
                         Color[] colors = { Colors.Red, Colors.Blue, Colors.Green, Colors.Yellow, Colors.Magenta, Colors.Cyan };
                         int colorIndex = (selections.Count - 1) % colors.Length;
@@ -370,7 +372,7 @@ public partial class MainPage : ContentPage
         currentBox = null;
         isDrawing = false;
     }
-    
+
     private void RemoveCurrentBox()
     {
         if (currentBox != null)
@@ -491,76 +493,85 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private async void OnSendToServerClicked(object sender, EventArgs e)
+private async void OnSendToServerClicked(object sender, EventArgs e)
+{
+    if (string.IsNullOrEmpty(selectedImagePath) || selections.Count == 0)
+        return;
+
+    LoadingIndicator.IsRunning = true;
+    StatusMessage.Text = "Sending data to server...";
+    SendToServerButton.IsEnabled = false;
+
+    try
     {
-        if (string.IsNullOrEmpty(selectedImagePath) || selections.Count == 0)
-            return;
-
-        LoadingIndicator.IsRunning = true;
-        StatusMessage.Text = "Sending data to server...";
-        SendToServerButton.IsEnabled = false;
-
-        try
+        var boxes = selections.Select(s => new BoundingBox
         {
-            // 准备发送到服务器的数据
-            var imageData = new ImageSelectionData
-            {
-                ImagePath = selectedImagePath,
-                Selections = selections.Select(s => new BoundingBox
-                {
-                    x1 = (int)Math.Round(Math.Min(s.X1, s.X2)),
-                    y1 = (int)Math.Round(Math.Min(s.Y1, s.Y2)),
-                    x2 = (int)Math.Round(Math.Max(s.X1, s.X2)),
-                    y2 = (int)Math.Round(Math.Max(s.Y1, s.Y2))
-                }).ToList()
-            };
+            x1 = (int)Math.Round(Math.Min(s.X1, s.X2)),
+            y1 = (int)Math.Round(Math.Min(s.Y1, s.Y2)),
+            x2 = (int)Math.Round(Math.Max(s.X1, s.X2)),
+            y2 = (int)Math.Round(Math.Max(s.Y1, s.Y2))
+        }).ToList();
 
-            // 发送到FastAPI服务器
-            var response = await SendToFastAPIServer(imageData);
+        var boxesJson = JsonSerializer.Serialize(boxes);
+        Console.WriteLine($"Boxes JSON: {boxesJson}");
+
+        // 创建RestClient
+        var client = new RestClient("http://127.0.0.1:8000") ;
+        
+        // 创建请求
+        var request = new RestRequest("/process", Method.Post);
+        
+        // 添加查询参数（自动URL编码）
+        request.AddParameter("seg_mode", "box");
+        request.AddParameter("boxes_json", boxesJson);  // RestSharp自动处理编码
+        request.AddParameter("polygon_refinement", "true");
+        request.AddParameter("detect_threshold", "0.3");
+        
+        // 添加文件（自动处理multipart/form-data）
+        request.AddFile("file", selectedImagePath, "image/jpeg");
+        
+        Console.WriteLine($"Sending request to: {client.BuildUri(request)}");
+
+        // 发送请求
+        var response = await client.ExecuteAsync(request);
+
+        if (response.IsSuccessful)
+        {
+            Console.WriteLine($"Server response: {response.Content}");
             
-            if (response.IsSuccessStatusCode)
+            var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(response.Content);
+
+            if (responseObject != null && responseObject.ContainsKey("task_id"))
             {
-                var content = await response.Content.ReadAsStringAsync();
-                var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
-                
-                if (responseObject != null && responseObject.ContainsKey("task_id"))
-                {
-                    var taskIdObject = responseObject["task_id"];
-                    if (taskIdObject != null)
-                    {
-                        string taskId = taskIdObject.ToString();
-                        TaskIdLabel.Text = $"Task ID: {taskId}";
-                        TaskIdLabel.IsVisible = true;
-                        StatusMessage.Text = "Successfully sent to server!";
-                        Console.WriteLine($"TASK_ID:{taskId}");
-                    }
-                    else
-                    {
-                        StatusMessage.Text = "Sent to server but received unexpected response";
-                    }
-                }
-                else
-                {
-                    StatusMessage.Text = "Sent to server but received unexpected response";
-                }
+                var taskId = responseObject["task_id"].ToString();
+                TaskIdLabel.Text = $"Task ID: {taskId}";
+                TaskIdLabel.IsVisible = true;
+                StatusMessage.Text = "Successfully sent to server!";
             }
             else
             {
-                StatusMessage.Text = $"Failed to send to server. Error: {response.StatusCode}";
-                SendToServerButton.IsEnabled = true;
+                StatusMessage.Text = "Server returned unexpected response";
             }
         }
-        catch (Exception ex)
+        else
         {
-            StatusMessage.Text = $"Error: {ex.Message}";
+            Console.WriteLine($"Error response: {response.Content}");
+            StatusMessage.Text = $"Server error: {response.StatusCode} - {response.Content}";
             SendToServerButton.IsEnabled = true;
         }
-        finally
-        {
-            LoadingIndicator.IsRunning = false;
-        }
     }
-    
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Exception: {ex.Message}");
+        StatusMessage.Text = $"Error: {ex.Message}";
+        SendToServerButton.IsEnabled = true;
+    }
+    finally
+    {
+        LoadingIndicator.IsRunning = false;
+    }
+}
+
     private void OnClearSelectionsClicked(object sender, EventArgs e)
     {
         // 清除所有选框
@@ -579,9 +590,9 @@ public partial class MainPage : ContentPage
             }
         });
     }
-    
+
     public bool IsImageSelected => !string.IsNullOrEmpty(selectedImagePath);
-    
+
     private void ClearSelections()
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -639,17 +650,21 @@ public class BoxSelection
     public double Y1 { get; set; }
     public double X2 { get; set; }
     public double Y2 { get; set; }
-    
-    public Point StartPoint { 
-        get => new Point(X1, Y1); 
-        set {
+
+    public Point StartPoint
+    {
+        get => new Point(X1, Y1);
+        set
+        {
             X1 = value.X;
             Y1 = value.Y;
         }
     }
-    public Point EndPoint { 
-        get => new Point(X2, Y2); 
-        set {
+    public Point EndPoint
+    {
+        get => new Point(X2, Y2);
+        set
+        {
             X2 = value.X;
             Y2 = value.Y;
         }
