@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="blender_selecter.MainPage"
+             Title="3D Reconstruction Selector">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="15">
+            <Label Text="MIDI-3D Reconstruction" 
+                   FontSize="24" 
+                   HorizontalOptions="Center"
+                   FontAttributes="Bold"/>
+
+            <Button Text="Select Image" 
+                    Clicked="OnSelectImageButtonClicked"
+                    x:Name="SelectImageButton"
+                    BackgroundColor="#007ACC"
+                    TextColor="White"/>
+
+            <Border Stroke="LightGray" 
+                    StrokeThickness="1"
+                    IsVisible="{Binding IsImageSelected}">
+                <Image x:Name="MainImage" 
+                       Aspect="AspectFit"
+                       HeightRequest="300"/>
+            </Border>
+
+            <Button Text="Send to Server" 
+                    Clicked="OnSendToServerClicked"
+                    x:Name="SendToServerButton"
+                    BackgroundColor="#007ACC"
+                    TextColor="White"
+                    IsEnabled="False"/>
+
+            <ActivityIndicator x:Name="LoadingIndicator" 
+                               IsRunning="False" 
+                               HeightRequest="40"/>
+
+            <Label x:Name="StatusMessage" 
+                   HorizontalOptions="Center"
+                   TextColor="Green"/>
+            
+            <Label x:Name="TaskIdLabel" 
+                   HorizontalOptions="Center"
+                   FontAttributes="Bold"
+                   IsVisible="False"/>
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
