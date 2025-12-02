@@ -4,70 +4,72 @@
              x:Class="blender_selecter.MainPage"
              Title="3D Reconstruction Selector">
 
-    <ScrollView>
-        <VerticalStackLayout Padding="20" Spacing="15">
-            <Label Text="MIDI-3D Reconstruction" 
-                   FontSize="24" 
-                   HorizontalOptions="Center"
-                   FontAttributes="Bold"/>
+    <VerticalStackLayout Padding="20" Spacing="15">
+        <Label Text="MIDI-3D Reconstruction" 
+               FontSize="24" 
+               HorizontalOptions="Center"
+               FontAttributes="Bold"/>
 
-            <Button Text="Select Image" 
-                    Clicked="OnSelectImageButtonClicked"
-                    x:Name="SelectImageButton"
-                    BackgroundColor="#007ACC"
-                    TextColor="White"/>
+        <Button Text="Select Image" 
+                Clicked="OnSelectImageButtonClicked"
+                x:Name="SelectImageButton"
+                BackgroundColor="#007ACC"
+                TextColor="White"
+                HorizontalOptions="Center"
+                WidthRequest="200"/>
 
-            <Label Text="Draw boxes on image to select areas" 
-                   IsVisible="{Binding IsImageSelected}"
-                   HorizontalOptions="Center"/>
+        <Label Text="Draw boxes on image to select areas" 
+               IsVisible="{Binding IsImageSelected}"
+               HorizontalOptions="Center"/>
 
-            <Grid x:Name="ImageGrid" 
-                  IsVisible="{Binding IsImageSelected}"
-                  HeightRequest="400">
-                <Border Stroke="LightGray" 
-                        StrokeThickness="1">
-                    <Image x:Name="MainImage" 
-                           Aspect="AspectFit"
-                           HorizontalOptions="Center"
-                           VerticalOptions="Center"/>
-                </Border>
-                
-                <AbsoluteLayout x:Name="OverlayLayout"
-                                BackgroundColor="Transparent"
-                                IsVisible="{Binding IsImageSelected}"
-                                HorizontalOptions="Center"
-                                VerticalOptions="Center"/>
-            </Grid>
-
-            <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
-                <Button Text="Clear Selections" 
-                        Clicked="OnClearSelectionsClicked"
-                        x:Name="ClearSelectionsButton"
-                        BackgroundColor="#FF3333"
-                        TextColor="White"
-                        IsEnabled="False"/>
-
-                <Button Text="Send to Server" 
-                        Clicked="OnSendToServerClicked"
-                        x:Name="SendToServerButton"
-                        BackgroundColor="#007ACC"
-                        TextColor="White"
-                        IsEnabled="False"/>
-            </HorizontalStackLayout>
-
-            <ActivityIndicator x:Name="LoadingIndicator" 
-                               IsRunning="False" 
-                               HeightRequest="40"/>
-
-            <Label x:Name="StatusMessage" 
-                   HorizontalOptions="Center"
-                   TextColor="Green"/>
+        <Grid x:Name="ImageGrid" 
+              IsVisible="{Binding IsImageSelected}"
+              VerticalOptions="FillAndExpand">
+            <Border Stroke="LightGray" 
+                    StrokeThickness="1">
+                <Image x:Name="MainImage" 
+                       Aspect="AspectFit"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Center"/>
+            </Border>
             
-            <Label x:Name="TaskIdLabel" 
-                   HorizontalOptions="Center"
-                   FontAttributes="Bold"
-                   IsVisible="False"/>
-        </VerticalStackLayout>
-    </ScrollView>
+            <AbsoluteLayout x:Name="OverlayLayout"
+                            BackgroundColor="Transparent"
+                            IsVisible="{Binding IsImageSelected}"
+                            HorizontalOptions="Center"
+                            VerticalOptions="Center"/>
+        </Grid>
+
+        <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+            <Button Text="Clear Selections" 
+                    Clicked="OnClearSelectionsClicked"
+                    x:Name="ClearSelectionsButton"
+                    BackgroundColor="#FF3333"
+                    TextColor="White"
+                    IsEnabled="False"
+                    WidthRequest="150"/>
+
+            <Button Text="Send to Server" 
+                    Clicked="OnSendToServerClicked"
+                    x:Name="SendToServerButton"
+                    BackgroundColor="#007ACC"
+                    TextColor="White"
+                    IsEnabled="False"
+                    WidthRequest="150"/>
+        </HorizontalStackLayout>
+
+        <ActivityIndicator x:Name="LoadingIndicator" 
+                           IsRunning="False" 
+                           HeightRequest="40"/>
+
+        <Label x:Name="StatusMessage" 
+               HorizontalOptions="Center"
+               TextColor="Green"/>
+        
+        <Label x:Name="TaskIdLabel" 
+               HorizontalOptions="Center"
+               FontAttributes="Bold"
+               IsVisible="False"/>
+    </VerticalStackLayout>
 
 </ContentPage>
