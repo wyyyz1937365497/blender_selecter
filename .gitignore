@@ -1,3 +1,14 @@
 bin/
 obj/
 .vs/
+# Visual Studio / Rider user-specific project settings
+*.csproj.user
+*.csproj.DotSettings
+*.csproj.DotSettings.user
+
+# .NET MAUI specific
+*.csproj
+*.csproj
+*.user
+blender_selecter.csproj.user
+blender_selecter.csproj.user
