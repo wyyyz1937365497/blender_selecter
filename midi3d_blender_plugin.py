@@ -215,24 +215,72 @@ class MIDI3D_OT_Execute(Operator):
     def handle_process_output(self, process, context):
         """处理子进程的输出"""
         task_id = None
+        model_path = None
+        task_failed = False
+        failure_reason = ""
 
         # 读取所有输出
         for line in process.stdout:
             print(f"MIDI3D Output: {line.strip()}")
-            match = re.search(r'TASK_ID:(.*)', line.strip())
-            if match:
-                task_id = match.group(1)
-                break
+            
+            # 检查是否有任务ID
+            task_id_match = re.search(r'MIDI3D_TASK_ID:(.*)', line.strip())
+            if task_id_match:
+                task_id = task_id_match.group(1)
+                continue
+                
+            # 检查是否有模型路径
+            model_path_match = re.search(r'MIDI3D_MODEL_PATH:(.*)', line.strip())
+            if model_path_match:
+                model_path = model_path_match.group(1)
+                continue
+                
+            # 检查任务是否失败
+            task_failed_match = re.search(r'MIDI3D_TASK_FAILED:(.*)', line.strip())
+            if task_failed_match:
+                task_failed = True
+                failure_reason = task_failed_match.group(1)
+                continue
+                
+            # 检查任务是否被取消
+            if "CANCELLED" in line.strip() and "MIDI3D_TASK_ID:" not in line.strip():
+                task_id = "CANCELLED"
+                continue
 
         process.wait()
 
         # 在主线程中执行后续操作
-        if task_id and task_id != "CANCELLED":
+        if model_path and os.path.exists(model_path):
+            # 直接导入模型
+            self.import_model_directly(model_path, context)
+        elif task_failed:
+            # 任务失败
+            self.report({'ERROR'}, f"MIDI3D task failed: {failure_reason}")
+            task_status["checking"] = False
+        elif task_id and task_id != "CANCELLED":
+            # 如果没有模型路径但有任务ID，则回退到旧的轮询方式
             task_status["task_id"] = task_id
             task_status["checking"] = True
             bpy.ops.midi3d.check_task_status('INVOKE_DEFAULT')
         elif task_id == "CANCELLED":
             self.report({'INFO'}, "Task was cancelled by user")
+            task_status["checking"] = False
+        else:
+            # 其他情况
+            task_status["checking"] = False
+
+    def import_model_directly(self, model_path, context):
+        """直接导入模型到Blender"""
+        try:
+            # 导入GLB模型到Blender
+            bpy.ops.import_scene.gltf(filepath=model_path)
+            self.report({'INFO'}, f"Model imported successfully from {model_path}")
+        except Exception as e:
+            self.report({'ERROR'}, f"Error importing model: {str(e)}")
+        finally:
+            # 清理任务状态
+            task_status["checking"] = False
+
 
 class MIDI3D_OT_CheckTaskStatus(Operator):
     """Check task status and import model when ready"""
@@ -266,7 +314,7 @@ class MIDI3D_OT_CheckTaskStatus(Operator):
         max_attempts = 30  # 最多尝试30次
         attempt = 0
 
-        while attempt < max_attempts:
+        while attempt < max_attempts and task_status.get("checking", False):
             try:
                 # 请求任务状态
                 response = requests.get(f"{api_url}/status/{task_id}")

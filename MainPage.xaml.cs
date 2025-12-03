@@ -1121,12 +1121,13 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                         
                         MainThread.BeginInvokeOnMainThread(() =>
                         {
-                            Midi3DProgressBar.Progress = progress / 100.0;
-                            StatusMessage.Text = $"🧊 3D reconstruction progress: {progress:F1}%";
+                            // MIDI3D返回的进度是0到1的范围，直接使用即可
+                            Midi3DProgressBar.Progress = progress;
+                            StatusMessage.Text = $"🧊 3D reconstruction progress: {progress * 100:F1}%";
                         });
                         
-                        // 如果进度达到100%，则完成
-                        if (progress >= 100)
+                        // 如果进度达到1（即100%），则完成
+                        if (progress >= 1)
                         {
                             MainThread.BeginInvokeOnMainThread(() =>
                             {
@@ -1157,6 +1158,19 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                 shouldExit = true;
                             }
                         });
+                        
+                        // 检查任务是否已完成，如果完成则下载模型文件
+                        if (status == "completed" && progressObject.ContainsKey("model_url"))
+                        {
+                            var modelUrl = progressObject["model_url"].ToString();
+                            await DownloadAndOutputModel(taskId, modelUrl, client);
+                            shouldExit = true;
+                        }
+                        else if (status == "failed")
+                        {
+                            Console.WriteLine("MIDI3D_TASK_FAILED:Task failed");
+                            shouldExit = true;
+                        }
                     }
                 }
                 
@@ -1172,8 +1186,63 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     StatusMessage.TextColor = Colors.Red;
                     Midi3DProgressBar.IsVisible = false;
                 });
+                Console.WriteLine("MIDI3D_TASK_FAILED:Error polling progress");
                 break;
             }
+        }
+    }
+
+    /// <summary>
+    /// 下载模型文件并输出文件路径到标准输出
+    /// </summary>
+    /// <param name="taskId">任务ID</param>
+    /// <param name="modelUrl">模型文件URL</param>
+    /// <param name="client">RestClient实例</param>
+    /// <returns>Task</returns>
+    private async Task DownloadAndOutputModel(string taskId, string modelUrl, RestClient client)
+    {
+        try
+        {
+            StatusMessage.Text = "🧊 Downloading 3D model...";
+            
+            // 构建完整的模型下载URL
+            var fullModelUrl = modelUrl.StartsWith("http") ? modelUrl : $"http://127.0.0.1:8000{modelUrl}";
+            
+            // 创建输出目录
+            string outputDir = Path.Combine(Path.GetTempPath(), "MIDI3D_Models");
+            if (!Directory.Exists(outputDir))
+            {
+                Directory.CreateDirectory(outputDir);
+            }
+            
+            // 创建文件路径
+            string filePath = Path.Combine(outputDir, $"{taskId}.glb");
+            
+            // 下载文件
+            var downloadRequest = new RestRequest(fullModelUrl, Method.Get);
+            var downloadResponse = await client.ExecuteAsync(downloadRequest);
+            
+            if (downloadResponse.IsSuccessful)
+            {
+                // 保存文件
+                await File.WriteAllBytesAsync(filePath, downloadResponse.RawBytes);
+                
+                // 输出文件路径到标准输出，供Blender插件读取
+                Console.WriteLine($"MIDI3D_MODEL_PATH:{filePath}");
+                StatusMessage.Text = "🧊 3D model downloaded successfully!";
+            }
+            else
+            {
+                Console.WriteLine($"MIDI3D_TASK_FAILED:Failed to download model. Status: {downloadResponse.StatusCode}");
+                StatusMessage.Text = "🧊 Failed to download 3D model!";
+                StatusMessage.TextColor = Colors.Red;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"MIDI3D_TASK_FAILED:Error downloading model: {ex.Message}");
+            StatusMessage.Text = "🧊 Error downloading 3D model!";
+            StatusMessage.TextColor = Colors.Red;
         }
     }
 
