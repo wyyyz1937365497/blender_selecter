@@ -4,72 +4,89 @@
              x:Class="blender_selecter.MainPage"
              Title="3D Reconstruction Selector">
 
-    <VerticalStackLayout Padding="20" Spacing="15">
-        <Label Text="MIDI-3D Reconstruction" 
-               FontSize="24" 
-               HorizontalOptions="Center"
-               FontAttributes="Bold"/>
+    <Grid RowDefinitions="Auto,*,Auto" Padding="10" RowSpacing="10">
+        <!-- 顶部标题和按钮 -->
+        <VerticalStackLayout Grid.Row="0" Spacing="8">
+            <Label Text="MIDI-3D Reconstruction" 
+                   FontSize="20" 
+                   HorizontalOptions="Center"
+                   FontAttributes="Bold"/>
 
-        <Button Text="Select Image" 
-                Clicked="OnSelectImageButtonClicked"
-                x:Name="SelectImageButton"
-                BackgroundColor="#007ACC"
-                TextColor="White"
-                HorizontalOptions="Center"
-                WidthRequest="200"/>
+            <Button Text="Select Image" 
+                    Clicked="OnSelectImageButtonClicked"
+                    x:Name="SelectImageButton"
+                    BackgroundColor="#007ACC"
+                    TextColor="White"
+                    HorizontalOptions="Center"
+                    HeightRequest="40"
+                    WidthRequest="180"/>
 
-        <Label Text="Draw boxes on image to select areas" 
-               IsVisible="{Binding IsImageSelected}"
-               HorizontalOptions="Center"/>
+            <Label Text="Draw boxes on image to select areas" 
+                   IsVisible="{Binding IsImageSelected}"
+                   HorizontalOptions="Center"
+                   FontSize="12"/>
+        </VerticalStackLayout>
 
+        <!-- 中间图片区域 - 占据所有剩余空间 -->
         <Grid x:Name="ImageGrid" 
+              Grid.Row="1"
               IsVisible="{Binding IsImageSelected}"
-              VerticalOptions="FillAndExpand">
+              HorizontalOptions="Fill"
+              VerticalOptions="Fill">
             <Border Stroke="LightGray" 
-                    StrokeThickness="1">
+                    StrokeThickness="1"
+                    HorizontalOptions="Fill"
+                    VerticalOptions="Fill">
                 <Image x:Name="MainImage" 
                        Aspect="AspectFit"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Center"/>
+                       HorizontalOptions="Fill"
+                       VerticalOptions="Fill"/>
             </Border>
             
             <AbsoluteLayout x:Name="OverlayLayout"
                             BackgroundColor="Transparent"
-                            HorizontalOptions="FillAndExpand"
-                            VerticalOptions="FillAndExpand"
+                            HorizontalOptions="Fill"
+                            VerticalOptions="Fill"
                             InputTransparent="False"/>
         </Grid>
 
-        <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
-            <Button Text="Clear Selections" 
-                    Clicked="OnClearSelectionsClicked"
-                    x:Name="ClearSelectionsButton"
-                    BackgroundColor="#FF3333"
-                    TextColor="White"
-                    IsEnabled="False"
-                    WidthRequest="150"/>
+        <!-- 底部按钮和状态 -->
+        <VerticalStackLayout Grid.Row="2" Spacing="8">
+            <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
+                <Button Text="Clear Selections" 
+                        Clicked="OnClearSelectionsClicked"
+                        x:Name="ClearSelectionsButton"
+                        BackgroundColor="#FF3333"
+                        TextColor="White"
+                        IsEnabled="False"
+                        HeightRequest="40"
+                        WidthRequest="140"/>
 
-            <Button Text="Send to Server" 
-                    Clicked="OnSendToServerClicked"
-                    x:Name="SendToServerButton"
-                    BackgroundColor="#007ACC"
-                    TextColor="White"
-                    IsEnabled="False"
-                    WidthRequest="150"/>
-        </HorizontalStackLayout>
+                <Button Text="Send to Server" 
+                        Clicked="OnSendToServerClicked"
+                        x:Name="SendToServerButton"
+                        BackgroundColor="#007ACC"
+                        TextColor="White"
+                        IsEnabled="False"
+                        HeightRequest="40"
+                        WidthRequest="140"/>
+            </HorizontalStackLayout>
 
-        <ActivityIndicator x:Name="LoadingIndicator" 
-                           IsRunning="False" 
-                           HeightRequest="40"/>
+            <ActivityIndicator x:Name="LoadingIndicator" 
+                               IsRunning="False" 
+                               HeightRequest="30"/>
 
-        <Label x:Name="StatusMessage" 
-               HorizontalOptions="Center"
-               TextColor="Green"/>
-        
-        <Label x:Name="TaskIdLabel" 
-               HorizontalOptions="Center"
-               FontAttributes="Bold"
-               IsVisible="False"/>
-    </VerticalStackLayout>
+            <Label x:Name="StatusMessage" 
+                   HorizontalOptions="Center"
+                   TextColor="Green"
+                   FontSize="12"/>
+            
+            <Label x:Name="TaskIdLabel" 
+                   HorizontalOptions="Center"
+                   FontAttributes="Bold"
+                   FontSize="12"
+                   IsVisible="False"/>
+        </VerticalStackLayout>
+    </Grid>
 
 </ContentPage>

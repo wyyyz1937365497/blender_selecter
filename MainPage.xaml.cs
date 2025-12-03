@@ -222,12 +222,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             // 确保 ImageGrid 可见
             ImageGrid.IsVisible = true;
             
-            // 设置一个默认高度
-            if (ImageGrid.HeightRequest <= 0)
-            {
-                ImageGrid.HeightRequest = 400;
-            }
-            
             isImageLoading = false;
             ClearSelectionsButton.IsEnabled = true;
             
@@ -254,12 +248,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
         // 确保 ImageGrid 可见
         ImageGrid.IsVisible = true;
-
-        // 设置一个默认高度
-        if (ImageGrid.HeightRequest <= 0)
-        {
-            ImageGrid.HeightRequest = 400;
-        }
 
         // 图片加载完成后调整尺寸
         MainImage.SizeChanged += OnMainImageSizeChanged;
@@ -335,22 +323,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 #if MACCATALYST
     private void AdjustImageSizeForMac()
     {
+        // 使用 Grid 自动填充，不需要手动设置高度
+        // 只需触发重绘选框
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            // 获取窗口大小并设置合适的图片区域高度
-            var windowHeight = DeviceDisplay.MainDisplayInfo.Height / DeviceDisplay.MainDisplayInfo.Density;
-            var desiredHeight = Math.Min(500, windowHeight * 0.5);
-            
-            if (desiredHeight > 200)
-            {
-                ImageGrid.HeightRequest = desiredHeight;
-            }
-            else
-            {
-                ImageGrid.HeightRequest = 400;
-            }
-            
-            ImageGrid.InvalidateMeasure();
+            RedrawAllSelectionBoxes();
         });
     }
     
@@ -365,7 +342,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 #endif
 
     /// <summary>
-    /// 根据归一化坐标重新绘制所有选框
+    /// 根据归一化坐标重新绘制所有选框（转换为当前图片显示区域的绝对坐标）
     /// </summary>
     private void RedrawAllSelectionBoxes()
     {
@@ -376,19 +353,21 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 // 获取当前图片显示区域
                 var imageBounds = GetImageDisplayBounds();
 
-                // 更新每个已完成选框的位置
                 for (int i = 0; i < selections.Count && i < completedBoxes.Count; i++)
                 {
                     var selection = selections[i];
                     var box = completedBoxes[i];
 
-                    // 根据归一化坐标计算新的屏幕坐标
+                    // 将归一化坐标转换为当前的绝对坐标
                     double left = imageBounds.X + selection.NormalizedX1 * imageBounds.Width;
                     double top = imageBounds.Y + selection.NormalizedY1 * imageBounds.Height;
                     double width = (selection.NormalizedX2 - selection.NormalizedX1) * imageBounds.Width;
                     double height = (selection.NormalizedY2 - selection.NormalizedY1) * imageBounds.Height;
 
-                    // 更新选框位置
+                    // 确保最小尺寸
+                    width = Math.Max(1, width);
+                    height = Math.Max(1, height);
+
                     AbsoluteLayout.SetLayoutBounds(box, new Rect(left, top, width, height));
                     AbsoluteLayout.SetLayoutFlags(box, AbsoluteLayoutFlags.None);
                 }
@@ -515,26 +494,26 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
         Console.WriteLine($"HandleTouchStart: Starting drawing at ({x}, {y})");
 
-        // 创建新的选框
+        // 创建新的选框（会使用比例布局）
         currentBox = new Border
         {
             BackgroundColor = Colors.Transparent,
             Stroke = Colors.Red,
             StrokeThickness = 2,
-            StrokeDashArray = new DoubleCollection(new double[] { 2, 2 }) // 修复虚线数组初始化
+            StrokeDashArray = new DoubleCollection(new double[] { 2, 2 })
         };
 
-        // 设置初始位置和大小
+        // 设置初始位置和大小（使用比例坐标）
         UpdateBoxPositionAndSize();
 
-        // 确保在UI线程上安全地操作UI元素
+        // 将框添加到 OverlayLayout 上（使用绝对坐标绘制）
         MainThread.BeginInvokeOnMainThread(() =>
         {
             try
             {
-                if (currentBox != null && !OverlayLayout.Contains(currentBox))
+                if (currentBox != null && !OverlayLayout.Children.Contains(currentBox))
                 {
-                    OverlayLayout.Add(currentBox);
+                    OverlayLayout.Children.Add(currentBox);
                     Console.WriteLine("HandleTouchStart: Box added to overlay");
                 }
             }
@@ -639,7 +618,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                         int colorIndex = (selections.Count - 1) % colors.Length;
                         currentBox.Stroke = colors[colorIndex];
 
-                        // 将已完成的选框添加到列表中
+                        // 将已完成的选框添加到列表中（保持绝对坐标，窗口缩放时会重绘）
                         completedBoxes.Add(currentBox);
                         Console.WriteLine($"HandleTouchEnd: Box finalized with color index {colorIndex}");
                     }
@@ -669,9 +648,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 try
                 {
-                    if (OverlayLayout.Contains(currentBox))
+                    if (OverlayLayout.Children.Contains(currentBox))
                     {
-                        OverlayLayout.Remove(currentBox);
+                        OverlayLayout.Children.Remove(currentBox);
                     }
                 }
                 catch (Exception ex)
@@ -689,7 +668,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private void UpdateBoxPositionAndSize()
     {
         if (currentBox == null) return;
+        
+        // 获取图片显示区域
+        var imageBounds = GetImageDisplayBounds();
 
+        // 计算矩形的左上角和尺寸（基于起点和终点）
+        // 起点固定不动，终点跟随鼠标
         double left = Math.Min(startPoint.X, endPoint.X);
         double top = Math.Min(startPoint.Y, endPoint.Y);
         double width = Math.Abs(endPoint.X - startPoint.X);
@@ -699,10 +683,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         width = Math.Max(width, 1);
         height = Math.Max(height, 1);
 
-        // 直接设置，不用 BeginInvokeOnMainThread，因为这会导致延迟
+        // 绘制时使用绝对坐标（相对于 OverlayLayout），不使用比例坐标
+        // 这样起点才不会移动
         try
         {
-            // 设置边框的位置和大小
             AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
             AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
         }
@@ -772,10 +756,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 try
                 {
-                    // 仅从布局中移除当前正在绘制的框，不影响已完成的框
-                    if (OverlayLayout.Contains(currentBox))
+                    // 从 OverlayLayout 中移除当前正在绘制的框
+                    if (OverlayLayout.Children.Contains(currentBox))
                     {
-                        OverlayLayout.Remove(currentBox);
+                        OverlayLayout.Children.Remove(currentBox);
                     }
                 }
                 catch (Exception ex)
@@ -879,8 +863,15 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             try
             {
                 selections.Clear();
+                // 从 OverlayLayout 中移除所有已完成的选框
+                foreach (var box in completedBoxes)
+                {
+                    if (OverlayLayout.Children.Contains(box))
+                    {
+                        OverlayLayout.Children.Remove(box);
+                    }
+                }
                 completedBoxes.Clear();
-                OverlayLayout.Children.Clear();
                 ClearSelectionsButton.IsEnabled = false;
                 SendToServerButton.IsEnabled = false;
             }
@@ -900,8 +891,15 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             try
             {
                 selections.Clear();
+                // 从 OverlayLayout 中移除所有已完成的选框
+                foreach (var box in completedBoxes)
+                {
+                    if (OverlayLayout.Children.Contains(box))
+                    {
+                        OverlayLayout.Children.Remove(box);
+                    }
+                }
                 completedBoxes.Clear();
-                OverlayLayout.Children.Clear();
             }
             catch (Exception ex)
             {
