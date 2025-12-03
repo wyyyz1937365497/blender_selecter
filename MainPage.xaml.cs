@@ -1060,6 +1060,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     StatusMessage.Text = "🧊 3D reconstruction started!";
                     StatusMessage.TextColor = Colors.Green;
                     
+                    // 输出MIDI3D任务ID到控制台，供Blender插件读取
+                    Console.WriteLine($"MIDI3D_TASK_ID:{taskId}");
+                    
                     // 启动一个任务来轮询进度
                     _ = Task.Run(async () => {
                         await PollMidi3DProgress(taskId, client);
