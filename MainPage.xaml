@@ -157,6 +157,18 @@
                                                HeightRequest="30"
                                                HorizontalOptions="Center"/>
 
+                            <!-- 添加ComfyUI进度条 -->
+                            <ProgressBar x:Name="ComfyUIProgressBar"
+                                         IsVisible="False"
+                                         HeightRequest="10"
+                                         HorizontalOptions="Fill"/>
+
+                            <!-- 添加MIDI-3D进度条 -->
+                            <ProgressBar x:Name="Midi3DProgressBar"
+                                         IsVisible="False"
+                                         HeightRequest="10"
+                                         HorizontalOptions="Fill"/>
+
                             <Label x:Name="StatusMessage"
                                    HorizontalOptions="Center"
                                    TextColor="Green"

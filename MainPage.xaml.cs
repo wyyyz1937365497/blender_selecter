@@ -809,6 +809,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
         isComfyUIProcessing = true;
         LoadingIndicator.IsRunning = true;
+        ComfyUIProgressBar.IsVisible = true; // 显示ComfyUI进度条
+        ComfyUIProgressBar.Progress = 0;     // 重置进度
         StatusMessage.Text = "🎨 Uploading image to ComfyUI...";
         OmniGen2Button.IsEnabled = false;
 
@@ -845,6 +847,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 MainThread.BeginInvokeOnMainThread(() => 
                 {
+                    ComfyUIProgressBar.Progress = progress / 100.0; // 更新进度条
                     StatusMessage.Text = $"🎨 Processing with ComfyUI... {progress}%";
                 });
             });
@@ -917,6 +920,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 MainImage.Source = ImageSource.FromFile(savedImagePath);
                 StatusMessage.Text = "✨ Image edited successfully! You can now draw boxes for 3D reconstruction.";
                 StatusMessage.TextColor = Colors.Green;
+                ComfyUIProgressBar.IsVisible = false; // 隐藏进度条
 
                 // 显示选框提示
                 SelectionHintLabel.IsVisible = true;
@@ -932,6 +936,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 StatusMessage.Text = $"Error: {ex.Message}";
                 StatusMessage.TextColor = Colors.Red;
+                ComfyUIProgressBar.IsVisible = false; // 隐藏进度条
             });
         }
         finally
@@ -951,6 +956,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             return;
 
         LoadingIndicator.IsRunning = true;
+        Midi3DProgressBar.IsVisible = true; // 显示MIDI-3D进度条
+        Midi3DProgressBar.Progress = 0;     // 重置进度
         StatusMessage.Text = "Sending data to MIDI-3D server...";
         Midi3DButton.IsEnabled = false;
 
@@ -1000,11 +1007,17 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     TaskIdLabel.IsVisible = true;
                     StatusMessage.Text = "🧊 3D reconstruction started!";
                     StatusMessage.TextColor = Colors.Green;
+                    
+                    // 启动一个任务来轮询进度
+                    _ = Task.Run(async () => {
+                        await PollMidi3DProgress(taskId, client);
+                    });
                 }
                 else
                 {
                     StatusMessage.Text = "Server returned unexpected response";
                     StatusMessage.TextColor = Colors.Orange;
+                    Midi3DProgressBar.IsVisible = false; // 隐藏进度条
                 }
             }
             else
@@ -1012,6 +1025,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Console.WriteLine($"Error response: {response.Content}");
                 StatusMessage.Text = $"Server error: {response.StatusCode}";
                 StatusMessage.TextColor = Colors.Red;
+                Midi3DProgressBar.IsVisible = false; // 隐藏进度条
             }
 
             Midi3DButton.IsEnabled = true;
@@ -1022,10 +1036,73 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             StatusMessage.Text = $"Error: {ex.Message}";
             StatusMessage.TextColor = Colors.Red;
             Midi3DButton.IsEnabled = true;
+            Midi3DProgressBar.IsVisible = false; // 隐藏进度条
         }
         finally
         {
             LoadingIndicator.IsRunning = false;
+        }
+    }
+
+    // 轮询MIDI-3D进度的方法
+    private async Task PollMidi3DProgress(string taskId, RestClient client)
+    {
+        while (true)
+        {
+            try
+            {
+                var progressRequest = new RestRequest($"/progress/{taskId}", Method.Get);
+                var progressResponse = await client.ExecuteAsync(progressRequest);
+                
+                if (progressResponse.IsSuccessful)
+                {
+                    var progressObject = JsonSerializer.Deserialize<Dictionary<string, object>>(progressResponse.Content);
+                    
+                    if (progressObject != null && progressObject.ContainsKey("progress"))
+                    {
+                        var progress = double.Parse(progressObject["progress"].ToString());
+                        
+                        MainThread.BeginInvokeOnMainThread(() =>
+                        {
+                            Midi3DProgressBar.Progress = progress / 100.0;
+                            StatusMessage.Text = $"🧊 3D reconstruction progress: {progress:F1}%";
+                        });
+                        
+                        // 如果进度达到100%，则完成
+                        if (progress >= 100)
+                        {
+                            MainThread.BeginInvokeOnMainThread(() =>
+                            {
+                                StatusMessage.Text = "🧊 3D reconstruction completed!";
+                                Midi3DProgressBar.IsVisible = false;
+                            });
+                            break;
+                        }
+                    }
+                    else if (progressObject != null && progressObject.ContainsKey("status"))
+                    {
+                        var status = progressObject["status"].ToString();
+                        MainThread.BeginInvokeOnMainThread(() =>
+                        {
+                            StatusMessage.Text = $"🧊 3D reconstruction status: {status}";
+                        });
+                    }
+                }
+                
+                // 等待一段时间再轮询
+                await Task.Delay(1000);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error polling progress: {ex.Message}");
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    StatusMessage.Text = $"Error polling progress: {ex.Message}";
+                    StatusMessage.TextColor = Colors.Red;
+                    Midi3DProgressBar.IsVisible = false;
+                });
+                break;
+            }
         }
     }
 
