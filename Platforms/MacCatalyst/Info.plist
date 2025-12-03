@@ -34,5 +34,13 @@
 	</array>
 	<key>XSAppIconAssets</key>
 	<string>Assets.xcassets/appicon.appiconset</string>
+	<!-- File access description for file picker -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to your photo library to select images for 3D reconstruction.</string>
+	<!-- Additional description for document access -->
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>This app needs access to your Documents folder to select images.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>This app needs access to your Downloads folder to select images.</string>
 </dict>
 </plist>

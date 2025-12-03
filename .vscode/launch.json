@@ -2,6 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": ".NET MAUI",
+      "type": "maui",
+      "request": "launch",
+      "preLaunchTask": "maui: Build"
+    },
+    {
       "name": "Launch Maui App (Windows)",
       "type": "coreclr",
       "request": "launch",
@@ -18,7 +24,9 @@
       "request": "launch",
       "preLaunchTask": "build",
       "program": "${workspaceFolder}/bin/Debug/net9.0-windows10.0.19041.0/win10-x64/blender_selecter.exe",
-      "args": ["${input:imagePath}"],
+      "args": [
+        "${input:imagePath}"
+      ],
       "cwd": "${workspaceFolder}",
       "stopAtEntry": false,
       "console": "internalConsole"

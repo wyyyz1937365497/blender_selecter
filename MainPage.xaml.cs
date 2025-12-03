@@ -7,22 +7,47 @@ using System.Net;
 using System.Text;
 using System.Net.Http.Headers;
 using RestSharp;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 
 namespace blender_selecter;
 
-public partial class MainPage : ContentPage
+public partial class MainPage : ContentPage, INotifyPropertyChanged
 {
-    private string selectedImagePath = "";
+    private string _selectedImagePath = "";
     public static string ImagePathFromArgs = "";
     private Point startPoint;
     private Point endPoint;
     private bool isDrawing = false;
     private Border? currentBox;
     private ObservableCollection<BoxSelection> selections = new ObservableCollection<BoxSelection>();
+    // 存储已完成的选框 UI 元素，用于窗口缩放时重新绘制
+    private List<Border> completedBoxes = new List<Border>();
     private double imageWidth = 0;
     private double imageHeight = 0;
     private readonly HttpClient httpClient = new HttpClient();
     private bool isImageLoading = false;
+
+    // 实现属性变更通知
+    public new event PropertyChangedEventHandler? PropertyChanged;
+    protected new void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    // 使用属性包装器来触发 UI 更新
+    private string selectedImagePath
+    {
+        get => _selectedImagePath;
+        set
+        {
+            if (_selectedImagePath != value)
+            {
+                _selectedImagePath = value;
+                OnPropertyChanged(nameof(IsImageSelected));
+            }
+        }
+    }
 
     public MainPage()
     {
@@ -40,6 +65,9 @@ public partial class MainPage : ContentPage
         tapGestureRecognizer.Tapped += OnImageTapped;
         OverlayLayout.GestureRecognizers.Add(tapGestureRecognizer);
 
+        // 监听 OverlayLayout 的大小变化，用于重新绘制选框
+        OverlayLayout.SizeChanged += OnOverlayLayoutSizeChanged;
+
         // 如果从命令行传入了图片路径，则自动加载
         if (!string.IsNullOrEmpty(ImagePathFromArgs))
         {
@@ -50,6 +78,15 @@ public partial class MainPage : ContentPage
         BindingContext = this;
     }
 
+    private void OnOverlayLayoutSizeChanged(object? sender, EventArgs e)
+    {
+        // 当 OverlayLayout 大小变化时重新绘制选框
+        if (selections.Count > 0 && completedBoxes.Count > 0 && !isImageLoading)
+        {
+            RedrawAllSelectionBoxes();
+        }
+    }
+
     protected override void OnHandlerChanged()
     {
         base.OnHandlerChanged();
@@ -58,6 +95,13 @@ public partial class MainPage : ContentPage
         if (Window != null)
         {
             Window.SizeChanged += OnWindowSizeChanged;
+        }
+#endif
+
+#if MACCATALYST
+        if (Window != null)
+        {
+            Window.SizeChanged += OnWindowSizeChangedMac;
         }
 #endif
     }
@@ -108,7 +152,8 @@ public partial class MainPage : ContentPage
                     { DevicePlatform.WinUI, new[] { ".png", ".jpg", ".jpeg" } },
                     { DevicePlatform.Android, new[] { "image/png", "image/jpeg" } },
                     { DevicePlatform.iOS, new[] { "public.png", "public.jpeg" } },
-                    { DevicePlatform.MacCatalyst, new[] { "png", "jpeg" } },
+                    // macOS/MacCatalyst 使用 UTType 标识符
+                    { DevicePlatform.MacCatalyst, new[] { "public.png", "public.jpeg", "public.image" } },
                     { DevicePlatform.Tizen, new[] { "*/*" } },
                 })
         };
@@ -118,7 +163,12 @@ public partial class MainPage : ContentPage
             var result = await FilePicker.Default.PickAsync(options);
             if (result != null)
             {
+#if MACCATALYST
+                // macOS 上需要通过 OpenReadAsync 获取流来读取文件
+                await LoadImageFromFileResult(result);
+#else
                 LoadImageFromPath(result.FullPath);
+#endif
             }
         }
         catch (Exception ex)
@@ -126,6 +176,71 @@ public partial class MainPage : ContentPage
             await DisplayAlert("Error", $"Failed to pick image: {ex.Message}", "OK");
         }
     }
+
+#if MACCATALYST
+    private async Task LoadImageFromFileResult(FileResult result)
+    {
+        try
+        {
+            isImageLoading = true;
+            
+            // 复制文件到缓存目录
+            var tempPath = Path.Combine(FileSystem.CacheDirectory, result.FileName);
+            
+            using (var sourceStream = await result.OpenReadAsync())
+            using (var destStream = File.Create(tempPath))
+            {
+                await sourceStream.CopyToAsync(destStream);
+            }
+            
+            selectedImagePath = tempPath;
+            
+            // 清除之前的选框
+            ClearSelections();
+            
+            // 获取图片尺寸
+            using (var imageStream = File.OpenRead(tempPath))
+            {
+#if MACCATALYST || IOS
+                // 使用 UIKit 获取图片尺寸
+                var imageData = Foundation.NSData.FromStream(imageStream);
+                if (imageData != null)
+                {
+                    var uiImage = UIKit.UIImage.LoadFromData(imageData);
+                    if (uiImage != null)
+                    {
+                        imageWidth = uiImage.Size.Width;
+                        imageHeight = uiImage.Size.Height;
+                    }
+                }
+#endif
+            }
+            
+            // 使用文件流加载图片
+            MainImage.Source = ImageSource.FromFile(tempPath);
+            
+            // 确保 ImageGrid 可见
+            ImageGrid.IsVisible = true;
+            
+            // 设置一个默认高度
+            if (ImageGrid.HeightRequest <= 0)
+            {
+                ImageGrid.HeightRequest = 400;
+            }
+            
+            isImageLoading = false;
+            ClearSelectionsButton.IsEnabled = true;
+            
+            Console.WriteLine($"Image loaded: {tempPath}, Size: {imageWidth}x{imageHeight}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading image: {ex.Message}");
+            await DisplayAlert("Error", $"Failed to load image: {ex.Message}", "OK");
+            isImageLoading = false;
+        }
+    }
+#endif
 
     private void LoadImageFromPath(string imagePath)
     {
@@ -136,6 +251,15 @@ public partial class MainPage : ContentPage
         ClearSelections();
 
         MainImage.Source = ImageSource.FromFile(imagePath);
+
+        // 确保 ImageGrid 可见
+        ImageGrid.IsVisible = true;
+
+        // 设置一个默认高度
+        if (ImageGrid.HeightRequest <= 0)
+        {
+            ImageGrid.HeightRequest = 400;
+        }
 
         // 图片加载完成后调整尺寸
         MainImage.SizeChanged += OnMainImageSizeChanged;
@@ -152,13 +276,28 @@ public partial class MainPage : ContentPage
             // 获取原始图片尺寸
             try
             {
-                if (MainImage.Source is FileImageSource)
+                if (MainImage.Source is FileImageSource && !string.IsNullOrEmpty(selectedImagePath) && File.Exists(selectedImagePath))
                 {
+#if MACCATALYST || IOS
+                    // macOS/iOS 使用 UIKit 获取图片尺寸
+                    using var imageStream = File.OpenRead(selectedImagePath);
+                    var imageData = Foundation.NSData.FromStream(imageStream);
+                    if (imageData != null)
+                    {
+                        var uiImage = UIKit.UIImage.LoadFromData(imageData);
+                        if (uiImage != null)
+                        {
+                            imageWidth = uiImage.Size.Width;
+                            imageHeight = uiImage.Size.Height;
+                        }
+                    }
+#else
                     var stream = File.OpenRead(selectedImagePath);
                     using var image = Microsoft.Maui.Graphics.Platform.PlatformImage.FromStream(stream);
                     imageWidth = image.Width;
                     imageHeight = image.Height;
                     stream.Close();
+#endif
                 }
             }
             catch (Exception ex)
@@ -169,14 +308,96 @@ public partial class MainPage : ContentPage
                 imageHeight = MainImage.Height;
             }
 
+            // 如果尺寸仍为0，使用控件尺寸
+            if (imageWidth <= 0 || imageHeight <= 0)
+            {
+                imageWidth = MainImage.Width;
+                imageHeight = MainImage.Height;
+            }
+
 #if WINDOWS
             // 调整图片尺寸以适应窗口
             AdjustImageSize();
 #endif
 
+#if MACCATALYST
+            // macOS 上也调整图片尺寸
+            AdjustImageSizeForMac();
+#endif
+
             // 更新按钮状态
             ClearSelectionsButton.IsEnabled = true;
+
+            Console.WriteLine($"Image size changed: {imageWidth}x{imageHeight}, Control size: {MainImage.Width}x{MainImage.Height}");
         }
+    }
+
+#if MACCATALYST
+    private void AdjustImageSizeForMac()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            // 获取窗口大小并设置合适的图片区域高度
+            var windowHeight = DeviceDisplay.MainDisplayInfo.Height / DeviceDisplay.MainDisplayInfo.Density;
+            var desiredHeight = Math.Min(500, windowHeight * 0.5);
+            
+            if (desiredHeight > 200)
+            {
+                ImageGrid.HeightRequest = desiredHeight;
+            }
+            else
+            {
+                ImageGrid.HeightRequest = 400;
+            }
+            
+            ImageGrid.InvalidateMeasure();
+        });
+    }
+    
+    private void OnWindowSizeChangedMac(object? sender, EventArgs e)
+    {
+        if (MainImage.IsLoaded && !string.IsNullOrEmpty(selectedImagePath) && !isImageLoading)
+        {
+            // 窗口大小变化时重新绘制所有选框
+            RedrawAllSelectionBoxes();
+        }
+    }
+#endif
+
+    /// <summary>
+    /// 根据归一化坐标重新绘制所有选框
+    /// </summary>
+    private void RedrawAllSelectionBoxes()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            try
+            {
+                // 获取当前图片显示区域
+                var imageBounds = GetImageDisplayBounds();
+
+                // 更新每个已完成选框的位置
+                for (int i = 0; i < selections.Count && i < completedBoxes.Count; i++)
+                {
+                    var selection = selections[i];
+                    var box = completedBoxes[i];
+
+                    // 根据归一化坐标计算新的屏幕坐标
+                    double left = imageBounds.X + selection.NormalizedX1 * imageBounds.Width;
+                    double top = imageBounds.Y + selection.NormalizedY1 * imageBounds.Height;
+                    double width = (selection.NormalizedX2 - selection.NormalizedX1) * imageBounds.Width;
+                    double height = (selection.NormalizedY2 - selection.NormalizedY1) * imageBounds.Height;
+
+                    // 更新选框位置
+                    AbsoluteLayout.SetLayoutBounds(box, new Rect(left, top, width, height));
+                    AbsoluteLayout.SetLayoutFlags(box, AbsoluteLayoutFlags.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error redrawing selection boxes: {ex.Message}");
+            }
+        });
     }
 
 #if WINDOWS
@@ -185,6 +406,8 @@ public partial class MainPage : ContentPage
         if (MainImage.IsLoaded && !string.IsNullOrEmpty(selectedImagePath) && !isImageLoading)
         {
             AdjustImageSize();
+            // 窗口大小变化时重新绘制所有选框
+            RedrawAllSelectionBoxes();
         }
     }
 
@@ -263,11 +486,34 @@ public partial class MainPage : ContentPage
     private void HandleTouchStart(double x, double y)
     {
         // 只有当已有图片被选中时才允许绘制
-        if (string.IsNullOrEmpty(selectedImagePath)) return;
+        if (string.IsNullOrEmpty(selectedImagePath))
+        {
+            Console.WriteLine("HandleTouchStart: No image selected");
+            return;
+        }
+
+        // 获取图片显示区域
+        var imageBounds = GetImageDisplayBounds();
+
+        Console.WriteLine($"HandleTouchStart: touch=({x}, {y}), imageBounds=({imageBounds.X}, {imageBounds.Y}, {imageBounds.Width}, {imageBounds.Height})");
+
+        // 检查触摸点是否在图片区域内（如果图片尺寸有效）
+        if (imageWidth > 0 && imageHeight > 0)
+        {
+            if (x < imageBounds.X || x > imageBounds.X + imageBounds.Width ||
+                y < imageBounds.Y || y > imageBounds.Y + imageBounds.Height)
+            {
+                // 触摸点不在图片区域内，不响应
+                Console.WriteLine("HandleTouchStart: Touch point outside image bounds");
+                return;
+            }
+        }
 
         isDrawing = true;
         startPoint = new Point(x, y);
         endPoint = startPoint;
+
+        Console.WriteLine($"HandleTouchStart: Starting drawing at ({x}, {y})");
 
         // 创建新的选框
         currentBox = new Border
@@ -289,6 +535,7 @@ public partial class MainPage : ContentPage
                 if (currentBox != null && !OverlayLayout.Contains(currentBox))
                 {
                     OverlayLayout.Add(currentBox);
+                    Console.WriteLine("HandleTouchStart: Box added to overlay");
                 }
             }
             catch (Exception ex)
@@ -304,7 +551,20 @@ public partial class MainPage : ContentPage
     {
         if (!isDrawing) return;
 
-        endPoint = new Point(x, y);
+        // 获取图片显示区域
+        var imageBounds = GetImageDisplayBounds();
+
+        // 将坐标限制在图片边界内（仅当图片尺寸有效时）
+        double clampedX = x;
+        double clampedY = y;
+
+        if (imageWidth > 0 && imageHeight > 0)
+        {
+            clampedX = Math.Max(imageBounds.X, Math.Min(x, imageBounds.X + imageBounds.Width));
+            clampedY = Math.Max(imageBounds.Y, Math.Min(y, imageBounds.Y + imageBounds.Height));
+        }
+
+        endPoint = new Point(clampedX, clampedY);
         UpdateBoxPositionAndSize();
     }
 
@@ -312,30 +572,53 @@ public partial class MainPage : ContentPage
     {
         if (!isDrawing) return;
 
+        Console.WriteLine($"HandleTouchEnd: startPoint=({startPoint.X}, {startPoint.Y}), endPoint=({endPoint.X}, {endPoint.Y})");
+
+        // 获取图片显示的实际尺寸和位置
+        var imageBounds = GetImageDisplayBounds();
+
+        // 将结束点也限制在图片边界内（仅当图片尺寸有效时）
+        if (imageWidth > 0 && imageHeight > 0)
+        {
+            double clampedEndX = Math.Max(imageBounds.X, Math.Min(endPoint.X, imageBounds.X + imageBounds.Width));
+            double clampedEndY = Math.Max(imageBounds.Y, Math.Min(endPoint.Y, imageBounds.Y + imageBounds.Height));
+            endPoint = new Point(clampedEndX, clampedEndY);
+
+            // 同样限制起始点
+            double clampedStartX = Math.Max(imageBounds.X, Math.Min(startPoint.X, imageBounds.X + imageBounds.Width));
+            double clampedStartY = Math.Max(imageBounds.Y, Math.Min(startPoint.Y, imageBounds.Y + imageBounds.Height));
+            startPoint = new Point(clampedStartX, clampedStartY);
+        }
+
         // 计算最终矩形
         double width = Math.Abs(endPoint.X - startPoint.X);
         double height = Math.Abs(endPoint.Y - startPoint.Y);
 
+        Console.WriteLine($"HandleTouchEnd: box size = {width} x {height}");
+
         // 只有当矩形足够大时才保留它
         if (width > 10 && height > 10)
         {
-            // 获取图片显示的实际尺寸和位置
-            var imageBounds = GetImageDisplayBounds();
-
-            // 计算缩放比例
-            double scaleX = imageWidth / imageBounds.Width;
-            double scaleY = imageHeight / imageBounds.Height;
+            // 计算缩放比例（处理图片尺寸未知的情况）
+            double scaleX = imageWidth > 0 ? imageWidth / imageBounds.Width : 1;
+            double scaleY = imageHeight > 0 ? imageHeight / imageBounds.Height : 1;
 
             // 保存选框信息（相对于原始图片的坐标）
-            // 修正坐标映射，考虑图片在控件中的偏移
             var selection = new BoxSelection
             {
                 X1 = (Math.Min(startPoint.X, endPoint.X) - imageBounds.X) * scaleX,
                 Y1 = (Math.Min(startPoint.Y, endPoint.Y) - imageBounds.Y) * scaleY,
                 X2 = (Math.Max(startPoint.X, endPoint.X) - imageBounds.X) * scaleX,
-                Y2 = (Math.Max(startPoint.Y, endPoint.Y) - imageBounds.Y) * scaleY
+                Y2 = (Math.Max(startPoint.Y, endPoint.Y) - imageBounds.Y) * scaleY,
+                // 保存归一化坐标（相对于图片显示区域的百分比）
+                NormalizedX1 = imageBounds.Width > 0 ? (Math.Min(startPoint.X, endPoint.X) - imageBounds.X) / imageBounds.Width : 0,
+                NormalizedY1 = imageBounds.Height > 0 ? (Math.Min(startPoint.Y, endPoint.Y) - imageBounds.Y) / imageBounds.Height : 0,
+                NormalizedX2 = imageBounds.Width > 0 ? (Math.Max(startPoint.X, endPoint.X) - imageBounds.X) / imageBounds.Width : 1,
+                NormalizedY2 = imageBounds.Height > 0 ? (Math.Max(startPoint.Y, endPoint.Y) - imageBounds.Y) / imageBounds.Height : 1
             };
             selections.Add(selection);
+
+            Console.WriteLine($"HandleTouchEnd: Selection added, total selections = {selections.Count}");
 
             // 启用发送按钮
             SendToServerButton.IsEnabled = true;
@@ -355,6 +638,10 @@ public partial class MainPage : ContentPage
                         Color[] colors = { Colors.Red, Colors.Blue, Colors.Green, Colors.Yellow, Colors.Magenta, Colors.Cyan };
                         int colorIndex = (selections.Count - 1) % colors.Length;
                         currentBox.Stroke = colors[colorIndex];
+
+                        // 将已完成的选框添加到列表中
+                        completedBoxes.Add(currentBox);
+                        Console.WriteLine($"HandleTouchEnd: Box finalized with color index {colorIndex}");
                     }
                     catch (Exception ex)
                     {
@@ -365,6 +652,7 @@ public partial class MainPage : ContentPage
         }
         else
         {
+            Console.WriteLine("HandleTouchEnd: Box too small, removing");
             // 删除太小的临时框
             RemoveCurrentBox();
         }
@@ -407,60 +695,71 @@ public partial class MainPage : ContentPage
         double width = Math.Abs(endPoint.X - startPoint.X);
         double height = Math.Abs(endPoint.Y - startPoint.Y);
 
-        // 确保在UI线程上安全地操作UI元素
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            try
-            {
-                // 设置边框的位置和大小
-                AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
-                AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
+        // 确保最小尺寸
+        width = Math.Max(width, 1);
+        height = Math.Max(height, 1);
 
-                // 确保边框可见
-                if (!OverlayLayout.Contains(currentBox))
-                {
-                    OverlayLayout.Add(currentBox);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error updating box position and size: {ex.Message}");
-            }
-        });
+        // 直接设置，不用 BeginInvokeOnMainThread，因为这会导致延迟
+        try
+        {
+            // 设置边框的位置和大小
+            AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
+            AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error updating box position and size: {ex.Message}");
+        }
     }
 
     /// <summary>
-    /// 获取图片在界面上的实际显示区域
+    /// 获取图片在界面上的实际显示区域（相对于 OverlayLayout）
     /// </summary>
     /// <returns>图片显示区域的矩形</returns>
     private Rect GetImageDisplayBounds()
     {
-        // 获取图片控件的大小
-        var imageSize = new Size(MainImage.Width, MainImage.Height);
+        // 使用 OverlayLayout 的尺寸作为容器尺寸，因为触摸坐标是相对于它的
+        double containerWidth = OverlayLayout.Width;
+        double containerHeight = OverlayLayout.Height;
+
+        // 如果 OverlayLayout 尺寸无效，尝试使用 ImageGrid 的尺寸
+        if (containerWidth <= 0 || containerHeight <= 0)
+        {
+            containerWidth = ImageGrid.Width;
+            containerHeight = ImageGrid.Height;
+        }
+
+        // 如果图片尺寸未知或容器尺寸无效，返回整个容器区域
+        if (imageWidth <= 0 || imageHeight <= 0 || containerWidth <= 0 || containerHeight <= 0)
+        {
+            Console.WriteLine($"GetImageDisplayBounds: Invalid dimensions - imageWidth={imageWidth}, imageHeight={imageHeight}, containerWidth={containerWidth}, containerHeight={containerHeight}");
+            return new Rect(0, 0, containerWidth > 0 ? containerWidth : 400, containerHeight > 0 ? containerHeight : 400);
+        }
 
         // 考虑图片的 AspectFit 显示方式，计算实际显示区域
         double imageAspectRatio = imageWidth / imageHeight;
-        double controlAspectRatio = imageSize.Width / imageSize.Height;
+        double containerAspectRatio = containerWidth / containerHeight;
 
         double displayWidth, displayHeight;
 
-        if (imageAspectRatio > controlAspectRatio)
+        if (imageAspectRatio > containerAspectRatio)
         {
             // 图片较宽，以宽度为准
-            displayWidth = imageSize.Width;
-            displayHeight = imageSize.Width / imageAspectRatio;
+            displayWidth = containerWidth;
+            displayHeight = containerWidth / imageAspectRatio;
         }
         else
         {
             // 图片较高，以高度为准
-            displayHeight = imageSize.Height;
-            displayWidth = imageSize.Height * imageAspectRatio;
+            displayHeight = containerHeight;
+            displayWidth = containerHeight * imageAspectRatio;
         }
 
-        // 计算居中显示时的偏移
-        double offsetX = (imageSize.Width - displayWidth) / 2;
-        double offsetY = (imageSize.Height - displayHeight) / 2;
+        // 计算居中显示时的偏移（相对于 OverlayLayout/容器）
+        double offsetX = (containerWidth - displayWidth) / 2;
+        double offsetY = (containerHeight - displayHeight) / 2;
 
+        Console.WriteLine($"GetImageDisplayBounds: container=({containerWidth}, {containerHeight}), display=({displayWidth}, {displayHeight}), offset=({offsetX}, {offsetY})");
         return new Rect(offsetX, offsetY, displayWidth, displayHeight);
     }
 
@@ -493,84 +792,84 @@ public partial class MainPage : ContentPage
         }
     }
 
-private async void OnSendToServerClicked(object sender, EventArgs e)
-{
-    if (string.IsNullOrEmpty(selectedImagePath) || selections.Count == 0)
-        return;
-
-    LoadingIndicator.IsRunning = true;
-    StatusMessage.Text = "Sending data to server...";
-    SendToServerButton.IsEnabled = false;
-
-    try
+    private async void OnSendToServerClicked(object sender, EventArgs e)
     {
-        var boxes = selections.Select(s => new BoundingBox
+        if (string.IsNullOrEmpty(selectedImagePath) || selections.Count == 0)
+            return;
+
+        LoadingIndicator.IsRunning = true;
+        StatusMessage.Text = "Sending data to server...";
+        SendToServerButton.IsEnabled = false;
+
+        try
         {
-            x1 = (int)Math.Round(Math.Min(s.X1, s.X2)),
-            y1 = (int)Math.Round(Math.Min(s.Y1, s.Y2)),
-            x2 = (int)Math.Round(Math.Max(s.X1, s.X2)),
-            y2 = (int)Math.Round(Math.Max(s.Y1, s.Y2))
-        }).ToList();
-
-        var boxesJson = JsonSerializer.Serialize(boxes);
-        Console.WriteLine($"Boxes JSON: {boxesJson}");
-
-        // 创建RestClient
-        var client = new RestClient("http://127.0.0.1:8000") ;
-        
-        // 创建请求
-        var request = new RestRequest("/process", Method.Post);
-        
-        // 添加查询参数（自动URL编码）
-        request.AddParameter("seg_mode", "box");
-        request.AddParameter("boxes_json", boxesJson);  // RestSharp自动处理编码
-        request.AddParameter("polygon_refinement", "true");
-        request.AddParameter("detect_threshold", "0.3");
-        
-        // 添加文件（自动处理multipart/form-data）
-        request.AddFile("file", selectedImagePath, "image/jpeg");
-        
-        Console.WriteLine($"Sending request to: {client.BuildUri(request)}");
-
-        // 发送请求
-        var response = await client.ExecuteAsync(request);
-
-        if (response.IsSuccessful)
-        {
-            Console.WriteLine($"Server response: {response.Content}");
-            
-            var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(response.Content);
-
-            if (responseObject != null && responseObject.ContainsKey("task_id"))
+            var boxes = selections.Select(s => new BoundingBox
             {
-                var taskId = responseObject["task_id"].ToString();
-                TaskIdLabel.Text = $"Task ID: {taskId}";
-                TaskIdLabel.IsVisible = true;
-                StatusMessage.Text = "Successfully sent to server!";
+                x1 = (int)Math.Round(Math.Min(s.X1, s.X2)),
+                y1 = (int)Math.Round(Math.Min(s.Y1, s.Y2)),
+                x2 = (int)Math.Round(Math.Max(s.X1, s.X2)),
+                y2 = (int)Math.Round(Math.Max(s.Y1, s.Y2))
+            }).ToList();
+
+            var boxesJson = JsonSerializer.Serialize(boxes);
+            Console.WriteLine($"Boxes JSON: {boxesJson}");
+
+            // 创建RestClient
+            var client = new RestClient("http://127.0.0.1:8000");
+
+            // 创建请求
+            var request = new RestRequest("/process", Method.Post);
+
+            // 添加查询参数（自动URL编码）
+            request.AddParameter("seg_mode", "box");
+            request.AddParameter("boxes_json", boxesJson);  // RestSharp自动处理编码
+            request.AddParameter("polygon_refinement", "true");
+            request.AddParameter("detect_threshold", "0.3");
+
+            // 添加文件（自动处理multipart/form-data）
+            request.AddFile("file", selectedImagePath, "image/jpeg");
+
+            Console.WriteLine($"Sending request to: {client.BuildUri(request)}");
+
+            // 发送请求
+            var response = await client.ExecuteAsync(request);
+
+            if (response.IsSuccessful)
+            {
+                Console.WriteLine($"Server response: {response.Content}");
+
+                var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(response.Content);
+
+                if (responseObject != null && responseObject.ContainsKey("task_id"))
+                {
+                    var taskId = responseObject["task_id"].ToString();
+                    TaskIdLabel.Text = $"Task ID: {taskId}";
+                    TaskIdLabel.IsVisible = true;
+                    StatusMessage.Text = "Successfully sent to server!";
+                }
+                else
+                {
+                    StatusMessage.Text = "Server returned unexpected response";
+                }
             }
             else
             {
-                StatusMessage.Text = "Server returned unexpected response";
+                Console.WriteLine($"Error response: {response.Content}");
+                StatusMessage.Text = $"Server error: {response.StatusCode} - {response.Content}";
+                SendToServerButton.IsEnabled = true;
             }
         }
-        else
+        catch (Exception ex)
         {
-            Console.WriteLine($"Error response: {response.Content}");
-            StatusMessage.Text = $"Server error: {response.StatusCode} - {response.Content}";
+            Console.WriteLine($"Exception: {ex.Message}");
+            StatusMessage.Text = $"Error: {ex.Message}";
             SendToServerButton.IsEnabled = true;
         }
+        finally
+        {
+            LoadingIndicator.IsRunning = false;
+        }
     }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Exception: {ex.Message}");
-        StatusMessage.Text = $"Error: {ex.Message}";
-        SendToServerButton.IsEnabled = true;
-    }
-    finally
-    {
-        LoadingIndicator.IsRunning = false;
-    }
-}
 
     private void OnClearSelectionsClicked(object sender, EventArgs e)
     {
@@ -580,6 +879,7 @@ private async void OnSendToServerClicked(object sender, EventArgs e)
             try
             {
                 selections.Clear();
+                completedBoxes.Clear();
                 OverlayLayout.Children.Clear();
                 ClearSelectionsButton.IsEnabled = false;
                 SendToServerButton.IsEnabled = false;
@@ -600,6 +900,7 @@ private async void OnSendToServerClicked(object sender, EventArgs e)
             try
             {
                 selections.Clear();
+                completedBoxes.Clear();
                 OverlayLayout.Children.Clear();
             }
             catch (Exception ex)
@@ -646,10 +947,17 @@ private async void OnSendToServerClicked(object sender, EventArgs e)
 
 public class BoxSelection
 {
+    // 原始图片坐标（用于发送到服务器）
     public double X1 { get; set; }
     public double Y1 { get; set; }
     public double X2 { get; set; }
     public double Y2 { get; set; }
+
+    // 归一化坐标（相对于图片显示区域的百分比，用于窗口缩放时重新绘制）
+    public double NormalizedX1 { get; set; }
+    public double NormalizedY1 { get; set; }
+    public double NormalizedX2 { get; set; }
+    public double NormalizedY2 { get; set; }
 
     public Point StartPoint
     {
