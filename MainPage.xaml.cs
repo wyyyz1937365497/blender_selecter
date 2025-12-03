@@ -989,7 +989,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     {
         // OmniGen2 只需要图片 + prompt
         bool hasImage = !string.IsNullOrEmpty(selectedImagePath);
-        bool hasPrompt = !string.IsNullOrWhiteSpace(e.NewTextValue);
+        bool hasPrompt = !string.IsNullOrWhiteSpace(PromptEntry.Text);
         OmniGen2Button.IsEnabled = hasImage && hasPrompt;
     }
 

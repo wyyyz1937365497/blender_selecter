@@ -4,170 +4,171 @@
              x:Class="blender_selecter.MainPage"
              Title="AI Image Editor &amp; 3D Generator">
 
-       <Grid RowDefinitions="Auto,*,Auto"
+       <Grid ColumnDefinitions="*,300"
              Padding="10"
-             RowSpacing="10">
-              <!-- 顶部标题和按钮 -->
-              <VerticalStackLayout Grid.Row="0"
-                                   Spacing="8">
-                     <Label Text="🎨 AI Image to 3D"
-                            FontSize="22"
-                            HorizontalOptions="Center"
-                            FontAttributes="Bold"
-                            TextColor="#2C3E50"/>
-
-                     <Button Text="📁 Select Image"
-                             Clicked="OnSelectImageButtonClicked"
-                             x:Name="SelectImageButton"
-                             BackgroundColor="#007ACC"
-                             TextColor="White"
-                             HorizontalOptions="Center"
-                             HeightRequest="40"
-                             WidthRequest="180"
-                             CornerRadius="8"/>
-
-                     <!-- 步骤指引 -->
-                     <Border Stroke="#E0E0E0"
-                             StrokeThickness="1"
-                             Padding="12,8"
-                             Margin="20,5"
-                             BackgroundColor="#F8F9FA"
-                             StrokeShape="RoundRectangle 8"
-                             HorizontalOptions="Center"
-                             IsVisible="{Binding IsImageSelected}">
-                            <VerticalStackLayout Spacing="4">
-                                   <Label Text="📋 Workflow Guide"
-                                          FontSize="12"
-                                          FontAttributes="Bold"
-                                          TextColor="#34495E"/>
-                                   <Label Text="① Enter prompt → Click 'Edit Image' to AI-generate content"
-                                          FontSize="11"
-                                          TextColor="#7F8C8D"/>
-                                   <Label Text="② Draw boxes on edited image to select objects for 3D"
-                                          FontSize="11"
-                                          TextColor="#7F8C8D"/>
-                                   <Label Text="③ Click '3D Rebuild' to generate 3D models"
-                                          FontSize="11"
-                                          TextColor="#7F8C8D"/>
-                            </VerticalStackLayout>
-                     </Border>
-              </VerticalStackLayout>
-
-              <!-- 中间图片区域 - 占据所有剩余空间 -->
+             ColumnSpacing="10"
+             VerticalOptions="FillAndExpand">
+              <!-- 左侧图片区域 - 占据大部分空间 -->
               <Grid x:Name="ImageGrid"
-                    Grid.Row="1"
+                    Grid.Column="0"
                     IsVisible="{Binding IsImageSelected}"
                     HorizontalOptions="Fill"
-                    VerticalOptions="Fill">
+                    VerticalOptions="FillAndExpand">
                      <Border Stroke="LightGray"
                              StrokeThickness="1"
                              HorizontalOptions="Fill"
-                             VerticalOptions="Fill">
+                             VerticalOptions="FillAndExpand">
                             <Image x:Name="MainImage"
                                    Aspect="AspectFit"
                                    HorizontalOptions="Fill"
-                                   VerticalOptions="Fill"/>
+                                   VerticalOptions="FillAndExpand"/>
                      </Border>
 
                      <AbsoluteLayout x:Name="OverlayLayout"
                                      BackgroundColor="Transparent"
                                      HorizontalOptions="Fill"
-                                     VerticalOptions="Fill"
+                                     VerticalOptions="FillAndExpand"
                                      InputTransparent="False"/>
               </Grid>
 
-              <!-- 底部按钮和状态 -->
-              <VerticalStackLayout Grid.Row="2"
-                                   Spacing="10">
-
-                     <!-- OmniGen2 Prompt 输入区域 - 居中且有边距 -->
-                     <Border Stroke="#9B59B6"
-                             StrokeThickness="1"
-                             Padding="12"
-                             Margin="40,0"
-                             BackgroundColor="#FAFAFA"
-                             StrokeShape="RoundRectangle 10"
-                             HorizontalOptions="Fill"
-                             IsVisible="{Binding IsImageSelected}">
-                            <VerticalStackLayout Spacing="6">
-                                   <Label Text="✨ Step 1: Describe what to generate"
-                                          FontSize="13"
+              <!-- 右侧控件区域 -->
+              <ScrollView Grid.Column="1"
+                          VerticalOptions="FillAndExpand">
+                     <VerticalStackLayout Spacing="10">
+                            <!-- 顶部标题和按钮 -->
+                            <VerticalStackLayout Spacing="8">
+                                   <Label Text="🎨 AI Image to 3D"
+                                          FontSize="22"
+                                          HorizontalOptions="Center"
                                           FontAttributes="Bold"
-                                          TextColor="#9B59B6"/>
-                                   <Entry x:Name="PromptEntry"
-                                          Placeholder="e.g., Add a beautiful sunset sky in the background..."
-                                          PlaceholderColor="#AAAAAA"
-                                          BackgroundColor="White"
-                                          TextColor="#333333"
-                                          HeightRequest="38"
-                                          FontSize="13"
-                                          TextChanged="OnPromptTextChanged"/>
+                                          TextColor="#2C3E50"/>
+
+                                   <Button Text="📁 Select Image"
+                                           Clicked="OnSelectImageButtonClicked"
+                                           x:Name="SelectImageButton"
+                                           BackgroundColor="#007ACC"
+                                           TextColor="White"
+                                           HorizontalOptions="Center"
+                                           HeightRequest="40"
+                                           WidthRequest="180"
+                                           CornerRadius="8"/>
+
+                                   <!-- 步骤指引 -->
+                                   <Border Stroke="#E0E0E0"
+                                           StrokeThickness="1"
+                                           Padding="12,8"
+                                           Margin="0,5"
+                                           BackgroundColor="#F8F9FA"
+                                           StrokeShape="RoundRectangle 8"
+                                           HorizontalOptions="Fill"
+                                           IsVisible="{Binding IsImageSelected}">
+                                          <VerticalStackLayout Spacing="4">
+                                                 <Label Text="📋 Workflow Guide"
+                                                        FontSize="12"
+                                                        FontAttributes="Bold"
+                                                        TextColor="#34495E"/>
+                                                 <Label Text="① Enter prompt → Click 'Edit Image' to AI-generate content"
+                                                        FontSize="11"
+                                                        TextColor="#7F8C8D"/>
+                                                 <Label Text="② Draw boxes on edited image to select objects for 3D"
+                                                        FontSize="11"
+                                                        TextColor="#7F8C8D"/>
+                                                 <Label Text="③ Click '3D Rebuild' to generate 3D models"
+                                                        FontSize="11"
+                                                        TextColor="#7F8C8D"/>
+                                          </VerticalStackLayout>
+                                   </Border>
                             </VerticalStackLayout>
-                     </Border>
 
-                     <!-- 选框提示 -->
-                     <Label x:Name="SelectionHintLabel"
-                            Text="📦 Step 2: Draw boxes to select objects for 3D reconstruction"
-                            FontSize="12"
-                            TextColor="#27AE60"
-                            HorizontalOptions="Center"
-                            IsVisible="False"/>
+                            <!-- OmniGen2 Prompt 输入区域 -->
+                            <Border Stroke="#9B59B6"
+                                    StrokeThickness="1"
+                                    Padding="12"
+                                    Margin="0"
+                                    BackgroundColor="#FAFAFA"
+                                    StrokeShape="RoundRectangle 10"
+                                    HorizontalOptions="Fill"
+                                    IsVisible="{Binding IsImageSelected}">
+                                   <VerticalStackLayout Spacing="6">
+                                          <Label Text="✨ Step 1: Describe what to generate"
+                                                 FontSize="13"
+                                                 FontAttributes="Bold"
+                                                 TextColor="#9B59B6"/>
+                                          <Editor x:Name="PromptEntry"
+                                                  Placeholder="e.g., Add a beautiful sunset sky in the background..."
+                                                  PlaceholderColor="#AAAAAA"
+                                                  BackgroundColor="White"
+                                                  TextColor="#333333"
+                                                  HeightRequest="100"
+                                                  FontSize="13"
+                                                  TextChanged="OnPromptTextChanged"
+                                                  AutoSize="TextChanges"/>
+                                   </VerticalStackLayout>
+                            </Border>
 
-                     <!-- 三个按钮水平排列 -->
-                     <HorizontalStackLayout Spacing="12"
-                                            HorizontalOptions="Center">
-                            <!-- 按钮1: 清除选框 -->
-                            <Button Text="🗑️ Clear"
-                                    Clicked="OnClearSelectionsClicked"
-                                    x:Name="ClearSelectionsButton"
-                                    BackgroundColor="#E74C3C"
-                                    TextColor="White"
-                                    IsEnabled="False"
-                                    HeightRequest="42"
-                                    WidthRequest="100"
-                                    CornerRadius="8"
-                                    FontSize="13"/>
+                            <!-- 选框提示 -->
+                            <Label x:Name="SelectionHintLabel"
+                                   Text="📦 Step 2: Draw boxes to select objects for 3D reconstruction"
+                                   FontSize="12"
+                                   TextColor="#27AE60"
+                                   HorizontalOptions="Center"
+                                   IsVisible="False"/>
 
-                            <!-- 按钮2: OmniGen2 图像编辑 (只需图片+prompt) -->
-                            <Button Text="🎨 Edit Image"
-                                    Clicked="OnOmniGen2EditClicked"
-                                    x:Name="OmniGen2Button"
-                                    BackgroundColor="#9B59B6"
-                                    TextColor="White"
-                                    IsEnabled="False"
-                                    HeightRequest="42"
-                                    WidthRequest="130"
-                                    CornerRadius="8"
-                                    FontSize="13"/>
+                            <!-- 三个按钮垂直排列 -->
+                            <VerticalStackLayout Spacing="12"
+                                                 HorizontalOptions="Center"
+                                                 WidthRequest="200">
+                                   <!-- 按钮1: 清除选框 -->
+                                   <Button Text="🗑️ Clear"
+                                           Clicked="OnClearSelectionsClicked"
+                                           x:Name="ClearSelectionsButton"
+                                           BackgroundColor="#E74C3C"
+                                           TextColor="White"
+                                           IsEnabled="False"
+                                           HeightRequest="42"
+                                           CornerRadius="8"
+                                           FontSize="13"/>
 
-                            <!-- 按钮3: 3D 重建 (需要选框) -->
-                            <Button Text="🧊 3D Rebuild"
-                                    Clicked="OnMidi3DRebuildClicked"
-                                    x:Name="Midi3DButton"
-                                    BackgroundColor="#007ACC"
-                                    TextColor="White"
-                                    IsEnabled="False"
-                                    HeightRequest="42"
-                                    WidthRequest="130"
-                                    CornerRadius="8"
-                                    FontSize="13"/>
-                     </HorizontalStackLayout>
+                                   <!-- 按钮2: OmniGen2 图像编辑 (只需图片+prompt) -->
+                                   <Button Text="🎨 Edit Image"
+                                           Clicked="OnOmniGen2EditClicked"
+                                           x:Name="OmniGen2Button"
+                                           BackgroundColor="#9B59B6"
+                                           TextColor="White"
+                                           IsEnabled="False"
+                                           HeightRequest="42"
+                                           CornerRadius="8"
+                                           FontSize="13"/>
 
-                     <ActivityIndicator x:Name="LoadingIndicator"
-                                        IsRunning="False"
-                                        HeightRequest="30"/>
+                                   <!-- 按钮3: 3D 重建 (需要选框) -->
+                                   <Button Text="🧊 3D Rebuild"
+                                           Clicked="OnMidi3DRebuildClicked"
+                                           x:Name="Midi3DButton"
+                                           BackgroundColor="#007ACC"
+                                           TextColor="White"
+                                           IsEnabled="False"
+                                           HeightRequest="42"
+                                           CornerRadius="8"
+                                           FontSize="13"/>
+                            </VerticalStackLayout>
 
-                     <Label x:Name="StatusMessage"
-                            HorizontalOptions="Center"
-                            TextColor="Green"
-                            FontSize="12"/>
+                            <ActivityIndicator x:Name="LoadingIndicator"
+                                               IsRunning="False"
+                                               HeightRequest="30"
+                                               HorizontalOptions="Center"/>
 
-                     <Label x:Name="TaskIdLabel"
-                            HorizontalOptions="Center"
-                            FontAttributes="Bold"
-                            FontSize="12"
-                            IsVisible="False"/>
-              </VerticalStackLayout>
+                            <Label x:Name="StatusMessage"
+                                   HorizontalOptions="Center"
+                                   TextColor="Green"
+                                   FontSize="12"/>
+
+                            <Label x:Name="TaskIdLabel"
+                                   HorizontalOptions="Center"
+                                   FontAttributes="Bold"
+                                   FontSize="12"
+                                   IsVisible="False"/>
+                     </VerticalStackLayout>
+              </ScrollView>
        </Grid>
 
 </ContentPage>
