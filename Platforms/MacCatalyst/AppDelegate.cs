@@ -11,14 +11,14 @@ namespace blender_selecter
         public override bool FinishedLaunching(UIApplication application, NSDictionary launchOptions)
         {
             var result = base.FinishedLaunching(application, launchOptions);
-            
+
             // 延迟执行全屏操作，确保窗口已创建
             MainThread.BeginInvokeOnMainThread(async () =>
             {
                 await Task.Delay(800); // 等待窗口完全初始化
                 TryEnterFullScreen();
             });
-            
+
             return result;
         }
 

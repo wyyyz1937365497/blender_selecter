@@ -223,7 +223,13 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             ImageGrid.IsVisible = true;
             
             isImageLoading = false;
-            ClearSelectionsButton.IsEnabled = true;
+            ClearSelectionsButton.IsEnabled = false; // 还没有选框
+            
+            // 如果已有 prompt，启用 OmniGen2 按钮
+            if (!string.IsNullOrWhiteSpace(PromptEntry?.Text))
+            {
+                OmniGen2Button.IsEnabled = true;
+            }
             
             Console.WriteLine($"Image loaded: {tempPath}, Size: {imageWidth}x{imageHeight}");
         }
@@ -599,8 +605,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
             Console.WriteLine($"HandleTouchEnd: Selection added, total selections = {selections.Count}");
 
-            // 启用发送按钮
-            SendToServerButton.IsEnabled = true;
+            // 有选框后启用 3D 重建按钮和清除按钮
+            Midi3DButton.IsEnabled = true;
+            ClearSelectionsButton.IsEnabled = true;
 
             // 保留框在画布上
             if (currentBox != null)
@@ -668,7 +675,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private void UpdateBoxPositionAndSize()
     {
         if (currentBox == null) return;
-        
+
         // 获取图片显示区域
         var imageBounds = GetImageDisplayBounds();
 
@@ -776,14 +783,102 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    private async void OnSendToServerClicked(object sender, EventArgs e)
+    private async void OnOmniGen2EditClicked(object sender, EventArgs e)
+    {
+        // OmniGen2 只需要图片和 prompt，不需要选框
+        if (string.IsNullOrEmpty(selectedImagePath))
+            return;
+
+        // 获取用户输入的 prompt
+        string userPrompt = PromptEntry?.Text ?? "";
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            await DisplayAlert("Prompt Required", "Please enter a prompt describing what you want to generate.", "OK");
+            return;
+        }
+
+        LoadingIndicator.IsRunning = true;
+        StatusMessage.Text = "✨ Sending to OmniGen2 for AI editing...";
+        OmniGen2Button.IsEnabled = false;
+
+        try
+        {
+            Console.WriteLine($"Prompt: {userPrompt}");
+
+            // 创建RestClient - 连接到 OmniGen2 服务
+            var client = new RestClient("http://127.0.0.1:8001");
+
+            // 创建请求
+            var request = new RestRequest("/omnigen2/edit", Method.Post);
+
+            // 添加参数 - 只需要 prompt，不需要 boxes
+            request.AddParameter("prompt", userPrompt);
+
+            // 添加文件
+            request.AddFile("file", selectedImagePath, "image/jpeg");
+
+            Console.WriteLine($"Sending request to OmniGen2: {client.BuildUri(request)}");
+
+            // 发送请求
+            var response = await client.ExecuteAsync(request);
+
+            if (response.IsSuccessful)
+            {
+                Console.WriteLine($"Server response: {response.Content}");
+
+                var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(response.Content);
+
+                if (responseObject != null && responseObject.ContainsKey("task_id"))
+                {
+                    var taskId = responseObject["task_id"].ToString();
+                    TaskIdLabel.Text = $"OmniGen2 Task ID: {taskId}";
+                    TaskIdLabel.IsVisible = true;
+                    StatusMessage.Text = "✨ AI editing in progress... Draw boxes when complete!";
+                    StatusMessage.TextColor = Colors.Green;
+
+                    // 显示选框提示
+                    SelectionHintLabel.IsVisible = true;
+                    StatusMessage.TextColor = Colors.Green;
+
+                    // 启用 3D 重建按钮
+                    Midi3DButton.IsEnabled = true;
+                }
+                else
+                {
+                    StatusMessage.Text = "Server returned unexpected response";
+                    StatusMessage.TextColor = Colors.Orange;
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Error response: {response.Content}");
+                StatusMessage.Text = $"Server error: {response.StatusCode}";
+                StatusMessage.TextColor = Colors.Red;
+            }
+
+            OmniGen2Button.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception: {ex.Message}");
+            StatusMessage.Text = $"Error: {ex.Message}";
+            StatusMessage.TextColor = Colors.Red;
+            OmniGen2Button.IsEnabled = true;
+        }
+        finally
+        {
+            LoadingIndicator.IsRunning = false;
+        }
+    }
+
+    private async void OnMidi3DRebuildClicked(object sender, EventArgs e)
     {
         if (string.IsNullOrEmpty(selectedImagePath) || selections.Count == 0)
             return;
 
         LoadingIndicator.IsRunning = true;
-        StatusMessage.Text = "Sending data to server...";
-        SendToServerButton.IsEnabled = false;
+        StatusMessage.Text = "Sending data to MIDI-3D server...";
+        Midi3DButton.IsEnabled = false;
 
         try
         {
@@ -798,22 +893,22 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             var boxesJson = JsonSerializer.Serialize(boxes);
             Console.WriteLine($"Boxes JSON: {boxesJson}");
 
-            // 创建RestClient
+            // 创建RestClient - 连接到 MIDI-3D 服务
             var client = new RestClient("http://127.0.0.1:8000");
 
             // 创建请求
             var request = new RestRequest("/process", Method.Post);
 
-            // 添加查询参数（自动URL编码）
+            // 添加查询参数
             request.AddParameter("seg_mode", "box");
-            request.AddParameter("boxes_json", boxesJson);  // RestSharp自动处理编码
+            request.AddParameter("boxes_json", boxesJson);
             request.AddParameter("polygon_refinement", "true");
             request.AddParameter("detect_threshold", "0.3");
 
-            // 添加文件（自动处理multipart/form-data）
+            // 添加文件
             request.AddFile("file", selectedImagePath, "image/jpeg");
 
-            Console.WriteLine($"Sending request to: {client.BuildUri(request)}");
+            Console.WriteLine($"Sending request to MIDI-3D: {client.BuildUri(request)}");
 
             // 发送请求
             var response = await client.ExecuteAsync(request);
@@ -827,27 +922,32 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 if (responseObject != null && responseObject.ContainsKey("task_id"))
                 {
                     var taskId = responseObject["task_id"].ToString();
-                    TaskIdLabel.Text = $"Task ID: {taskId}";
+                    TaskIdLabel.Text = $"MIDI-3D Task ID: {taskId}";
                     TaskIdLabel.IsVisible = true;
-                    StatusMessage.Text = "Successfully sent to server!";
+                    StatusMessage.Text = "🧊 3D reconstruction started!";
+                    StatusMessage.TextColor = Colors.Green;
                 }
                 else
                 {
                     StatusMessage.Text = "Server returned unexpected response";
+                    StatusMessage.TextColor = Colors.Orange;
                 }
             }
             else
             {
                 Console.WriteLine($"Error response: {response.Content}");
-                StatusMessage.Text = $"Server error: {response.StatusCode} - {response.Content}";
-                SendToServerButton.IsEnabled = true;
+                StatusMessage.Text = $"Server error: {response.StatusCode}";
+                StatusMessage.TextColor = Colors.Red;
             }
+
+            Midi3DButton.IsEnabled = true;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}");
             StatusMessage.Text = $"Error: {ex.Message}";
-            SendToServerButton.IsEnabled = true;
+            StatusMessage.TextColor = Colors.Red;
+            Midi3DButton.IsEnabled = true;
         }
         finally
         {
@@ -873,13 +973,24 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 }
                 completedBoxes.Clear();
                 ClearSelectionsButton.IsEnabled = false;
-                SendToServerButton.IsEnabled = false;
+                // OmniGen2 按钮状态由 prompt 控制，不在这里改变
+                Midi3DButton.IsEnabled = false;
+                SelectionHintLabel.IsVisible = false;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error clearing selections: {ex.Message}");
             }
         });
+    }
+
+    // Prompt 文本变化时更新 OmniGen2 按钮状态
+    private void OnPromptTextChanged(object sender, TextChangedEventArgs e)
+    {
+        // OmniGen2 只需要图片 + prompt
+        bool hasImage = !string.IsNullOrEmpty(selectedImagePath);
+        bool hasPrompt = !string.IsNullOrWhiteSpace(e.NewTextValue);
+        OmniGen2Button.IsEnabled = hasImage && hasPrompt;
     }
 
     public bool IsImageSelected => !string.IsNullOrEmpty(selectedImagePath);
