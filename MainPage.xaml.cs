@@ -1102,11 +1102,13 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     // 轮询MIDI-3D进度的方法
     private async Task PollMidi3DProgress(string taskId, RestClient client)
     {
-        while (true)
+        bool shouldExit = false;
+        while (!shouldExit)
         {
             try
             {
-                var progressRequest = new RestRequest($"/progress/{taskId}", Method.Get);
+                // 修改为使用新的API端点
+                var progressRequest = new RestRequest($"/status/{taskId}", Method.Get);
                 var progressResponse = await client.ExecuteAsync(progressRequest);
                 
                 if (progressResponse.IsSuccessful)
@@ -1131,7 +1133,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                 StatusMessage.Text = "🧊 3D reconstruction completed!";
                                 Midi3DProgressBar.IsVisible = false;
                             });
-                            break;
+                            shouldExit = true;
                         }
                     }
                     else if (progressObject != null && progressObject.ContainsKey("status"))
@@ -1140,6 +1142,20 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                         MainThread.BeginInvokeOnMainThread(() =>
                         {
                             StatusMessage.Text = $"🧊 3D reconstruction status: {status}";
+                            
+                            // 检查任务是否已完成
+                            if (status == "completed" && progressObject.ContainsKey("model_url"))
+                            {
+                                StatusMessage.Text = "🧊 3D reconstruction completed!";
+                                Midi3DProgressBar.IsVisible = false;
+                                shouldExit = true;
+                            }
+                            else if (status == "failed")
+                            {
+                                StatusMessage.Text = "🧊 3D reconstruction failed!";
+                                Midi3DProgressBar.IsVisible = false;
+                                shouldExit = true;
+                            }
                         });
                     }
                 }

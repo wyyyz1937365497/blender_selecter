@@ -17,13 +17,73 @@ bl_info = {
     "author": "Your Name",
     "version": (1, 0),
     "blender": (2, 80, 0),
-    "location": "3D View > Header",
+    "location": "3D View > Sidebar",
     "description": "Capture scene with MIDI3D camera and import generated model",
     "category": "3D View",
 }
 
 # 全局变量存储任务状态
 task_status = {"checking": False, "task_id": None}
+
+# --- 新增代码：创建侧边栏面板 ---
+class MIDI3D_PT_Panel(Panel):
+    """创建MIDI3D工具面板"""
+    bl_label = "MIDI3D Reconstruction"
+    bl_idname = "MIDI3D_PT_main_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "MIDI3D"  # 侧边栏中的标签页名称
+
+    def draw(self, context):
+        layout = self.layout
+        
+        # 添加执行按钮
+        row = layout.row()
+        row.scale_y = 1.5  # 增加按钮高度，使其更醒目
+        op = row.operator("midi3d.execute", text="Start MIDI3D Reconstruction", icon='MESH_CUBE')
+        
+        # 添加状态显示
+        if task_status.get("checking", False):
+            box = layout.box()
+            row = box.row()
+            row.label(text="Task Status:", icon='INFO')
+            row = box.row()
+            row.label(text="Processing...", icon='TIME')
+            
+            # 添加取消按钮
+            row = layout.row()
+            op = row.operator("midi3d.cancel_task", text="Cancel Task", icon='CANCEL')
+        
+        # 添加分隔线
+        layout.separator()
+        
+        # 添加说明信息
+        box = layout.box()
+        row = box.row()
+        row.label(text="Instructions:", icon='HELP')
+        row = box.row()
+        row.label(text="1. Ensure MIDI3D is installed")
+        row = box.row()
+        row.label(text="2. Set up your scene")
+        row = box.row()
+        row.label(text="3. Click the button above")
+# --- 新增代码结束 ---
+
+
+# --- 新增代码：创建取消任务的操作符 ---
+class MIDI3D_OT_CancelTask(Operator):
+    """取消当前任务"""
+    bl_idname = "midi3d.cancel_task"
+    bl_label = "Cancel Task"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        task_status["checking"] = False
+        task_status["task_id"] = None
+        self.report({'INFO'}, "Task cancelled")
+        return {'FINISHED'}
+# --- 新增代码结束 ---
+
 
 class MIDI3D_OT_Execute(Operator):
     """Execute MIDI3D reconstruction"""
@@ -159,7 +219,7 @@ class MIDI3D_OT_Execute(Operator):
         # 读取所有输出
         for line in process.stdout:
             print(f"MIDI3D Output: {line.strip()}")
-            match = re.search(r'MIDI3D_TASK_ID:(.*)', line.strip())
+            match = re.search(r'TASK_ID:(.*)', line.strip())
             if match:
                 task_id = match.group(1)
                 break
@@ -272,6 +332,7 @@ class MIDI3D_OT_CheckTaskStatus(Operator):
         except Exception as e:
             self.report({'ERROR'}, f"Error downloading/importing model: {str(e)}")
 
+# --- 修改：保留Header，但主要功能已移至Panel ---
 class MIDI3D_HT_Header(Header):
     """添加MIDI3D按钮到3D视图顶部工具栏"""
     bl_space_type = 'VIEW_3D'
@@ -288,12 +349,18 @@ class MIDI3D_HT_Header(Header):
         # 如果有任务正在检查，显示状态
         if task_status.get("checking", False):
             layout.label(text="Checking task status...", icon='TIME')
+# --- 修改结束 ---
 
+
+# --- 修改：更新类注册列表 ---
 classes = (
+    MIDI3D_PT_Panel,        # 新增：注册面板
+    MIDI3D_OT_CancelTask,    # 新增：注册取消任务操作符
     MIDI3D_OT_Execute,
     MIDI3D_OT_CheckTaskStatus,
     MIDI3D_HT_Header,
 )
+# --- 修改结束 ---
 
 def register():
     for cls in classes:
