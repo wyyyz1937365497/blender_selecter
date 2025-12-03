@@ -130,7 +130,7 @@
                                            FontSize="13"/>
 
                                    <!-- 按钮2: OmniGen2 图像编辑 (只需图片+prompt) -->
-                                   <Button Text="🎨 Edit Image"
+                                   <Button Text="🎨 Edit with ComfyUI"
                                            Clicked="OnOmniGen2EditClicked"
                                            x:Name="OmniGen2Button"
                                            BackgroundColor="#9B59B6"

@@ -9,6 +9,7 @@ using System.Net.Http.Headers;
 using RestSharp;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 
 namespace blender_selecter;
 
@@ -27,6 +28,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private double imageHeight = 0;
     private readonly HttpClient httpClient = new HttpClient();
     private bool isImageLoading = false;
+    private ComfyUIServiceNew comfyUIService = new ComfyUIServiceNew();
+    private bool isComfyUIProcessing = false;
 
     // 实现属性变更通知
     public new event PropertyChangedEventHandler? PropertyChanged;
@@ -785,7 +788,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     private async void OnOmniGen2EditClicked(object sender, EventArgs e)
     {
-        // OmniGen2 只需要图片和 prompt，不需要选框
+        // ComfyUI 只需要图片和 prompt，不需要选框
         if (string.IsNullOrEmpty(selectedImagePath))
             return;
 
@@ -797,77 +800,148 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             return;
         }
 
+        // 防止重复处理
+        if (isComfyUIProcessing)
+        {
+            await DisplayAlert("Processing", "ComfyUI is already processing an image. Please wait for it to complete.", "OK");
+            return;
+        }
+
+        isComfyUIProcessing = true;
         LoadingIndicator.IsRunning = true;
-        StatusMessage.Text = "✨ Sending to OmniGen2 for AI editing...";
+        StatusMessage.Text = "🎨 Uploading image to ComfyUI...";
         OmniGen2Button.IsEnabled = false;
 
         try
         {
             Console.WriteLine($"Prompt: {userPrompt}");
 
-            // 创建RestClient - 连接到 OmniGen2 服务
-            var client = new RestClient("http://127.0.0.1:8001");
-
-            // 创建请求
-            var request = new RestRequest("/omnigen2/edit", Method.Post);
-
-            // 添加参数 - 只需要 prompt，不需要 boxes
-            request.AddParameter("prompt", userPrompt);
-
-            // 添加文件
-            request.AddFile("file", selectedImagePath, "image/jpeg");
-
-            Console.WriteLine($"Sending request to OmniGen2: {client.BuildUri(request)}");
-
-            // 发送请求
-            var response = await client.ExecuteAsync(request);
-
-            if (response.IsSuccessful)
+            // 1. 上传图片到ComfyUI
+            var uploadResult = await comfyUIService.UploadImageAsync(selectedImagePath);
+            string imageName = uploadResult.ContainsKey("name") ? uploadResult["name"].ToString() : "";
+            
+            if (string.IsNullOrEmpty(imageName))
             {
-                Console.WriteLine($"Server response: {response.Content}");
-
-                var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(response.Content);
-
-                if (responseObject != null && responseObject.ContainsKey("task_id"))
-                {
-                    var taskId = responseObject["task_id"].ToString();
-                    TaskIdLabel.Text = $"OmniGen2 Task ID: {taskId}";
-                    TaskIdLabel.IsVisible = true;
-                    StatusMessage.Text = "✨ AI editing in progress... Draw boxes when complete!";
-                    StatusMessage.TextColor = Colors.Green;
-
-                    // 显示选框提示
-                    SelectionHintLabel.IsVisible = true;
-                    StatusMessage.TextColor = Colors.Green;
-
-                    // 启用 3D 重建按钮
-                    Midi3DButton.IsEnabled = true;
-                }
-                else
-                {
-                    StatusMessage.Text = "Server returned unexpected response";
-                    StatusMessage.TextColor = Colors.Orange;
-                }
-            }
-            else
-            {
-                Console.WriteLine($"Error response: {response.Content}");
-                StatusMessage.Text = $"Server error: {response.StatusCode}";
-                StatusMessage.TextColor = Colors.Red;
+                throw new Exception("Failed to upload image to ComfyUI");
             }
 
-            OmniGen2Button.IsEnabled = true;
+            Console.WriteLine($"Image uploaded successfully: {imageName}");
+            StatusMessage.Text = "🎨 Image uploaded, loading workflow...";
+
+            // 2. 从资源加载工作流
+            var workflow = comfyUIService.LoadWorkflowFromResource();
+
+            // 3. 替换工作流中的文本和图片
+            workflow = comfyUIService.ReplacePromptInWorkflow(workflow, userPrompt, imageName);
+
+            // 4. 提交任务
+            StatusMessage.Text = "🎨 Submitting task to ComfyUI...";
+            var (promptId, clientId) = await comfyUIService.QueuePromptAsync(workflow);
+            Console.WriteLine($"Task submitted, ID: {promptId}");
+
+            // 5. 等待任务完成并显示进度
+            StatusMessage.Text = "🎨 Processing image with ComfyUI...";
+            bool completed = await comfyUIService.WaitForCompletionAsync(promptId, clientId, progress => 
+            {
+                MainThread.BeginInvokeOnMainThread(() => 
+                {
+                    StatusMessage.Text = $"🎨 Processing with ComfyUI... {progress}%";
+                });
+            });
+
+            if (!completed)
+            {
+                throw new Exception("ComfyUI task did not complete successfully");
+            }
+
+            // 6. 获取结果图片
+            StatusMessage.Text = "🎨 Retrieving generated image...";
+            var history = await comfyUIService.GetHistoryAsync(promptId);
+            
+            // 创建输出目录
+            string outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "output");
+            if (!Directory.Exists(outputDir))
+            {
+                Directory.CreateDirectory(outputDir);
+            }
+
+            // 保存结果图片
+            bool imageSaved = false;
+            string savedImagePath = "";
+            
+            if (history.ContainsKey(promptId))
+            {
+                var promptHistory = JsonSerializer.Deserialize<Dictionary<string, object>>(history[promptId].ToString());
+                if (promptHistory != null && promptHistory.ContainsKey("outputs"))
+                {
+                    var outputs = JsonSerializer.Deserialize<Dictionary<string, object>>(promptHistory["outputs"].ToString());
+                    
+                    foreach (var nodeOutput in outputs)
+                    {
+                        var nodeData = JsonSerializer.Deserialize<Dictionary<string, object>>(nodeOutput.Value.ToString());
+                        if (nodeData.ContainsKey("images"))
+                        {
+                            var images = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(nodeData["images"].ToString());
+                            
+                            foreach (var image in images)
+                            {
+                                string filename = image["filename"].ToString();
+                                string subfolder = image.ContainsKey("subfolder") ? image["subfolder"].ToString() : "";
+                                string folderType = image.ContainsKey("type") ? image["type"].ToString() : "output";
+                                
+                                savedImagePath = Path.Combine(outputDir, $"output_{filename}");
+                                imageSaved = await comfyUIService.DownloadImageAsync(filename, subfolder, folderType, savedImagePath);
+                                
+                                if (imageSaved)
+                                {
+                                    Console.WriteLine($"Image saved to: {savedImagePath}");
+                                    break; // 只保存第一张图片
+                                }
+                            }
+                        }
+                        
+                        if (imageSaved) break;
+                    }
+                }
+            }
+
+            if (!imageSaved || string.IsNullOrEmpty(savedImagePath))
+            {
+                throw new Exception("Failed to retrieve generated image from ComfyUI");
+            }
+
+            // 7. 更新UI显示新图片
+            MainThread.BeginInvokeOnMainThread(() => 
+            {
+                selectedImagePath = savedImagePath;
+                MainImage.Source = ImageSource.FromFile(savedImagePath);
+                StatusMessage.Text = "✨ Image edited successfully! You can now draw boxes for 3D reconstruction.";
+                StatusMessage.TextColor = Colors.Green;
+
+                // 显示选框提示
+                SelectionHintLabel.IsVisible = true;
+
+                // 启用 3D 重建按钮
+                Midi3DButton.IsEnabled = true;
+            });
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}");
-            StatusMessage.Text = $"Error: {ex.Message}";
-            StatusMessage.TextColor = Colors.Red;
-            OmniGen2Button.IsEnabled = true;
+            MainThread.BeginInvokeOnMainThread(() => 
+            {
+                StatusMessage.Text = $"Error: {ex.Message}";
+                StatusMessage.TextColor = Colors.Red;
+            });
         }
         finally
         {
-            LoadingIndicator.IsRunning = false;
+            MainThread.BeginInvokeOnMainThread(() => 
+            {
+                LoadingIndicator.IsRunning = false;
+                OmniGen2Button.IsEnabled = true;
+                isComfyUIProcessing = false;
+            });
         }
     }
 

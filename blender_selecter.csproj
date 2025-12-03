@@ -57,12 +57,16 @@
 
 		<!-- Raw Assets (also remove the "Resources\Raw" prefix) -->
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+		<!-- ComfyUI Workflow JSON -->
+		<MauiAsset Include="Resources\image_omnigen2_image_edit.json" LogicalName="blender_selecter.Resources.image_omnigen2_image_edit.json" />
+		<EmbeddedResource Include="Resources\image_omnigen2_image_edit.json" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.8" />
 		<PackageReference Include="RestSharp" Version="113.0.0" />
+		<PackageReference Include="WebSocketSharp-netstandard" Version="1.0.1" />
 	</ItemGroup>
 
 </Project>
