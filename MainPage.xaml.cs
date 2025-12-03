@@ -222,14 +222,14 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             // 确保 ImageGrid 可见
             ImageGrid.IsVisible = true;
             
-            // 设置一个默认高度
-            if (ImageGrid.HeightRequest <= 0)
-            {
-                ImageGrid.HeightRequest = 400;
-            }
-            
             isImageLoading = false;
-            ClearSelectionsButton.IsEnabled = true;
+            ClearSelectionsButton.IsEnabled = false; // 还没有选框
+            
+            // 如果已有 prompt，启用 OmniGen2 按钮
+            if (!string.IsNullOrWhiteSpace(PromptEntry?.Text))
+            {
+                OmniGen2Button.IsEnabled = true;
+            }
             
             Console.WriteLine($"Image loaded: {tempPath}, Size: {imageWidth}x{imageHeight}");
         }
@@ -254,12 +254,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
         // 确保 ImageGrid 可见
         ImageGrid.IsVisible = true;
-
-        // 设置一个默认高度
-        if (ImageGrid.HeightRequest <= 0)
-        {
-            ImageGrid.HeightRequest = 400;
-        }
 
         // 图片加载完成后调整尺寸
         MainImage.SizeChanged += OnMainImageSizeChanged;
@@ -335,22 +329,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 #if MACCATALYST
     private void AdjustImageSizeForMac()
     {
+        // 使用 Grid 自动填充，不需要手动设置高度
+        // 只需触发重绘选框
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            // 获取窗口大小并设置合适的图片区域高度
-            var windowHeight = DeviceDisplay.MainDisplayInfo.Height / DeviceDisplay.MainDisplayInfo.Density;
-            var desiredHeight = Math.Min(500, windowHeight * 0.5);
-            
-            if (desiredHeight > 200)
-            {
-                ImageGrid.HeightRequest = desiredHeight;
-            }
-            else
-            {
-                ImageGrid.HeightRequest = 400;
-            }
-            
-            ImageGrid.InvalidateMeasure();
+            RedrawAllSelectionBoxes();
         });
     }
     
@@ -365,7 +348,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 #endif
 
     /// <summary>
-    /// 根据归一化坐标重新绘制所有选框
+    /// 根据归一化坐标重新绘制所有选框（转换为当前图片显示区域的绝对坐标）
     /// </summary>
     private void RedrawAllSelectionBoxes()
     {
@@ -376,19 +359,21 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 // 获取当前图片显示区域
                 var imageBounds = GetImageDisplayBounds();
 
-                // 更新每个已完成选框的位置
                 for (int i = 0; i < selections.Count && i < completedBoxes.Count; i++)
                 {
                     var selection = selections[i];
                     var box = completedBoxes[i];
 
-                    // 根据归一化坐标计算新的屏幕坐标
+                    // 将归一化坐标转换为当前的绝对坐标
                     double left = imageBounds.X + selection.NormalizedX1 * imageBounds.Width;
                     double top = imageBounds.Y + selection.NormalizedY1 * imageBounds.Height;
                     double width = (selection.NormalizedX2 - selection.NormalizedX1) * imageBounds.Width;
                     double height = (selection.NormalizedY2 - selection.NormalizedY1) * imageBounds.Height;
 
-                    // 更新选框位置
+                    // 确保最小尺寸
+                    width = Math.Max(1, width);
+                    height = Math.Max(1, height);
+
                     AbsoluteLayout.SetLayoutBounds(box, new Rect(left, top, width, height));
                     AbsoluteLayout.SetLayoutFlags(box, AbsoluteLayoutFlags.None);
                 }
@@ -515,26 +500,26 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
         Console.WriteLine($"HandleTouchStart: Starting drawing at ({x}, {y})");
 
-        // 创建新的选框
+        // 创建新的选框（会使用比例布局）
         currentBox = new Border
         {
             BackgroundColor = Colors.Transparent,
             Stroke = Colors.Red,
             StrokeThickness = 2,
-            StrokeDashArray = new DoubleCollection(new double[] { 2, 2 }) // 修复虚线数组初始化
+            StrokeDashArray = new DoubleCollection(new double[] { 2, 2 })
         };
 
-        // 设置初始位置和大小
+        // 设置初始位置和大小（使用比例坐标）
         UpdateBoxPositionAndSize();
 
-        // 确保在UI线程上安全地操作UI元素
+        // 将框添加到 OverlayLayout 上（使用绝对坐标绘制）
         MainThread.BeginInvokeOnMainThread(() =>
         {
             try
             {
-                if (currentBox != null && !OverlayLayout.Contains(currentBox))
+                if (currentBox != null && !OverlayLayout.Children.Contains(currentBox))
                 {
-                    OverlayLayout.Add(currentBox);
+                    OverlayLayout.Children.Add(currentBox);
                     Console.WriteLine("HandleTouchStart: Box added to overlay");
                 }
             }
@@ -620,8 +605,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
             Console.WriteLine($"HandleTouchEnd: Selection added, total selections = {selections.Count}");
 
-            // 启用发送按钮
-            SendToServerButton.IsEnabled = true;
+            // 有选框后启用 3D 重建按钮和清除按钮
+            Midi3DButton.IsEnabled = true;
+            ClearSelectionsButton.IsEnabled = true;
 
             // 保留框在画布上
             if (currentBox != null)
@@ -639,7 +625,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                         int colorIndex = (selections.Count - 1) % colors.Length;
                         currentBox.Stroke = colors[colorIndex];
 
-                        // 将已完成的选框添加到列表中
+                        // 将已完成的选框添加到列表中（保持绝对坐标，窗口缩放时会重绘）
                         completedBoxes.Add(currentBox);
                         Console.WriteLine($"HandleTouchEnd: Box finalized with color index {colorIndex}");
                     }
@@ -669,9 +655,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 try
                 {
-                    if (OverlayLayout.Contains(currentBox))
+                    if (OverlayLayout.Children.Contains(currentBox))
                     {
-                        OverlayLayout.Remove(currentBox);
+                        OverlayLayout.Children.Remove(currentBox);
                     }
                 }
                 catch (Exception ex)
@@ -690,6 +676,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     {
         if (currentBox == null) return;
 
+        // 获取图片显示区域
+        var imageBounds = GetImageDisplayBounds();
+
+        // 计算矩形的左上角和尺寸（基于起点和终点）
+        // 起点固定不动，终点跟随鼠标
         double left = Math.Min(startPoint.X, endPoint.X);
         double top = Math.Min(startPoint.Y, endPoint.Y);
         double width = Math.Abs(endPoint.X - startPoint.X);
@@ -699,10 +690,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         width = Math.Max(width, 1);
         height = Math.Max(height, 1);
 
-        // 直接设置，不用 BeginInvokeOnMainThread，因为这会导致延迟
+        // 绘制时使用绝对坐标（相对于 OverlayLayout），不使用比例坐标
+        // 这样起点才不会移动
         try
         {
-            // 设置边框的位置和大小
             AbsoluteLayout.SetLayoutBounds(currentBox, new Rect(left, top, width, height));
             AbsoluteLayout.SetLayoutFlags(currentBox, AbsoluteLayoutFlags.None);
         }
@@ -772,10 +763,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             {
                 try
                 {
-                    // 仅从布局中移除当前正在绘制的框，不影响已完成的框
-                    if (OverlayLayout.Contains(currentBox))
+                    // 从 OverlayLayout 中移除当前正在绘制的框
+                    if (OverlayLayout.Children.Contains(currentBox))
                     {
-                        OverlayLayout.Remove(currentBox);
+                        OverlayLayout.Children.Remove(currentBox);
                     }
                 }
                 catch (Exception ex)
@@ -792,14 +783,102 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
     }
 
-    private async void OnSendToServerClicked(object sender, EventArgs e)
+    private async void OnOmniGen2EditClicked(object sender, EventArgs e)
+    {
+        // OmniGen2 只需要图片和 prompt，不需要选框
+        if (string.IsNullOrEmpty(selectedImagePath))
+            return;
+
+        // 获取用户输入的 prompt
+        string userPrompt = PromptEntry?.Text ?? "";
+        if (string.IsNullOrWhiteSpace(userPrompt))
+        {
+            await DisplayAlert("Prompt Required", "Please enter a prompt describing what you want to generate.", "OK");
+            return;
+        }
+
+        LoadingIndicator.IsRunning = true;
+        StatusMessage.Text = "✨ Sending to OmniGen2 for AI editing...";
+        OmniGen2Button.IsEnabled = false;
+
+        try
+        {
+            Console.WriteLine($"Prompt: {userPrompt}");
+
+            // 创建RestClient - 连接到 OmniGen2 服务
+            var client = new RestClient("http://127.0.0.1:8001");
+
+            // 创建请求
+            var request = new RestRequest("/omnigen2/edit", Method.Post);
+
+            // 添加参数 - 只需要 prompt，不需要 boxes
+            request.AddParameter("prompt", userPrompt);
+
+            // 添加文件
+            request.AddFile("file", selectedImagePath, "image/jpeg");
+
+            Console.WriteLine($"Sending request to OmniGen2: {client.BuildUri(request)}");
+
+            // 发送请求
+            var response = await client.ExecuteAsync(request);
+
+            if (response.IsSuccessful)
+            {
+                Console.WriteLine($"Server response: {response.Content}");
+
+                var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(response.Content);
+
+                if (responseObject != null && responseObject.ContainsKey("task_id"))
+                {
+                    var taskId = responseObject["task_id"].ToString();
+                    TaskIdLabel.Text = $"OmniGen2 Task ID: {taskId}";
+                    TaskIdLabel.IsVisible = true;
+                    StatusMessage.Text = "✨ AI editing in progress... Draw boxes when complete!";
+                    StatusMessage.TextColor = Colors.Green;
+
+                    // 显示选框提示
+                    SelectionHintLabel.IsVisible = true;
+                    StatusMessage.TextColor = Colors.Green;
+
+                    // 启用 3D 重建按钮
+                    Midi3DButton.IsEnabled = true;
+                }
+                else
+                {
+                    StatusMessage.Text = "Server returned unexpected response";
+                    StatusMessage.TextColor = Colors.Orange;
+                }
+            }
+            else
+            {
+                Console.WriteLine($"Error response: {response.Content}");
+                StatusMessage.Text = $"Server error: {response.StatusCode}";
+                StatusMessage.TextColor = Colors.Red;
+            }
+
+            OmniGen2Button.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Exception: {ex.Message}");
+            StatusMessage.Text = $"Error: {ex.Message}";
+            StatusMessage.TextColor = Colors.Red;
+            OmniGen2Button.IsEnabled = true;
+        }
+        finally
+        {
+            LoadingIndicator.IsRunning = false;
+        }
+    }
+
+    private async void OnMidi3DRebuildClicked(object sender, EventArgs e)
     {
         if (string.IsNullOrEmpty(selectedImagePath) || selections.Count == 0)
             return;
 
         LoadingIndicator.IsRunning = true;
-        StatusMessage.Text = "Sending data to server...";
-        SendToServerButton.IsEnabled = false;
+        StatusMessage.Text = "Sending data to MIDI-3D server...";
+        Midi3DButton.IsEnabled = false;
 
         try
         {
@@ -814,22 +893,22 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             var boxesJson = JsonSerializer.Serialize(boxes);
             Console.WriteLine($"Boxes JSON: {boxesJson}");
 
-            // 创建RestClient
+            // 创建RestClient - 连接到 MIDI-3D 服务
             var client = new RestClient("http://127.0.0.1:8000");
 
             // 创建请求
             var request = new RestRequest("/process", Method.Post);
 
-            // 添加查询参数（自动URL编码）
+            // 添加查询参数
             request.AddParameter("seg_mode", "box");
-            request.AddParameter("boxes_json", boxesJson);  // RestSharp自动处理编码
+            request.AddParameter("boxes_json", boxesJson);
             request.AddParameter("polygon_refinement", "true");
             request.AddParameter("detect_threshold", "0.3");
 
-            // 添加文件（自动处理multipart/form-data）
+            // 添加文件
             request.AddFile("file", selectedImagePath, "image/jpeg");
 
-            Console.WriteLine($"Sending request to: {client.BuildUri(request)}");
+            Console.WriteLine($"Sending request to MIDI-3D: {client.BuildUri(request)}");
 
             // 发送请求
             var response = await client.ExecuteAsync(request);
@@ -843,27 +922,32 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 if (responseObject != null && responseObject.ContainsKey("task_id"))
                 {
                     var taskId = responseObject["task_id"].ToString();
-                    TaskIdLabel.Text = $"Task ID: {taskId}";
+                    TaskIdLabel.Text = $"MIDI-3D Task ID: {taskId}";
                     TaskIdLabel.IsVisible = true;
-                    StatusMessage.Text = "Successfully sent to server!";
+                    StatusMessage.Text = "🧊 3D reconstruction started!";
+                    StatusMessage.TextColor = Colors.Green;
                 }
                 else
                 {
                     StatusMessage.Text = "Server returned unexpected response";
+                    StatusMessage.TextColor = Colors.Orange;
                 }
             }
             else
             {
                 Console.WriteLine($"Error response: {response.Content}");
-                StatusMessage.Text = $"Server error: {response.StatusCode} - {response.Content}";
-                SendToServerButton.IsEnabled = true;
+                StatusMessage.Text = $"Server error: {response.StatusCode}";
+                StatusMessage.TextColor = Colors.Red;
             }
+
+            Midi3DButton.IsEnabled = true;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}");
             StatusMessage.Text = $"Error: {ex.Message}";
-            SendToServerButton.IsEnabled = true;
+            StatusMessage.TextColor = Colors.Red;
+            Midi3DButton.IsEnabled = true;
         }
         finally
         {
@@ -879,16 +963,34 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             try
             {
                 selections.Clear();
+                // 从 OverlayLayout 中移除所有已完成的选框
+                foreach (var box in completedBoxes)
+                {
+                    if (OverlayLayout.Children.Contains(box))
+                    {
+                        OverlayLayout.Children.Remove(box);
+                    }
+                }
                 completedBoxes.Clear();
-                OverlayLayout.Children.Clear();
                 ClearSelectionsButton.IsEnabled = false;
-                SendToServerButton.IsEnabled = false;
+                // OmniGen2 按钮状态由 prompt 控制，不在这里改变
+                Midi3DButton.IsEnabled = false;
+                SelectionHintLabel.IsVisible = false;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error clearing selections: {ex.Message}");
             }
         });
+    }
+
+    // Prompt 文本变化时更新 OmniGen2 按钮状态
+    private void OnPromptTextChanged(object sender, TextChangedEventArgs e)
+    {
+        // OmniGen2 只需要图片 + prompt
+        bool hasImage = !string.IsNullOrEmpty(selectedImagePath);
+        bool hasPrompt = !string.IsNullOrWhiteSpace(e.NewTextValue);
+        OmniGen2Button.IsEnabled = hasImage && hasPrompt;
     }
 
     public bool IsImageSelected => !string.IsNullOrEmpty(selectedImagePath);
@@ -900,8 +1002,15 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             try
             {
                 selections.Clear();
+                // 从 OverlayLayout 中移除所有已完成的选框
+                foreach (var box in completedBoxes)
+                {
+                    if (OverlayLayout.Children.Contains(box))
+                    {
+                        OverlayLayout.Children.Remove(box);
+                    }
+                }
                 completedBoxes.Clear();
-                OverlayLayout.Children.Clear();
             }
             catch (Exception ex)
             {
