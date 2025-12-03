@@ -28,7 +28,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private double imageHeight = 0;
     private readonly HttpClient httpClient = new HttpClient();
     private bool isImageLoading = false;
-    private ComfyUIServiceNew comfyUIService = new ComfyUIServiceNew();
+    private ComfyUIService comfyUIService = new ComfyUIService();
     private bool isComfyUIProcessing = false;
 
     // 实现属性变更通知
