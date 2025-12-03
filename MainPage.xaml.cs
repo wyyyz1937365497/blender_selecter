@@ -30,6 +30,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private bool isImageLoading = false;
     private ComfyUIService comfyUIService = new ComfyUIService();
     private bool isComfyUIProcessing = false;
+    // 默认负面提示词
+    private const string DefaultNegativePrompt = "low quality, bad anatomy, bad hands, bad eyes, bad proportions, duplicate, cropped, worst quality, low resolution, artifacts, ugly, deformed, mutated hands, extra fingers, fewer fingers, jpeg artifacts";
 
     // 实现属性变更通知
     public new event PropertyChangedEventHandler? PropertyChanged;
@@ -786,6 +788,22 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
     }
 
+    private void OnNegativePromptToggled(object sender, ToggledEventArgs e)
+    {
+        // 根据开关状态显示或隐藏负面提示词输入框
+        NegativePromptEntry.IsVisible = e.Value;
+    }
+
+    // 获取负面提示词，如果输入框为空则使用默认值
+    private string GetNegativePrompt()
+    {
+        if (string.IsNullOrWhiteSpace(NegativePromptEntry.Text))
+        {
+            return DefaultNegativePrompt;
+        }
+        return NegativePromptEntry.Text;
+    }
+
     private async void OnOmniGen2EditClicked(object sender, EventArgs e)
     {
         // ComfyUI 只需要图片和 prompt，不需要选框
@@ -799,6 +817,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             await DisplayAlert("Prompt Required", "Please enter a prompt describing what you want to generate.", "OK");
             return;
         }
+
+        // 获取负面提示词
+        string negativePrompt = GetNegativePrompt();
 
         // 防止重复处理
         if (isComfyUIProcessing)
@@ -817,6 +838,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         try
         {
             Console.WriteLine($"Prompt: {userPrompt}");
+            Console.WriteLine($"Negative Prompt: {negativePrompt}");
 
             // 1. 上传图片到ComfyUI
             var uploadResult = await comfyUIService.UploadImageAsync(selectedImagePath);
@@ -835,6 +857,36 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
             // 3. 替换工作流中的文本和图片
             workflow = comfyUIService.ReplacePromptInWorkflow(workflow, userPrompt, imageName);
+            
+            // 查找并替换负面提示词
+            foreach (var nodeEntry in workflow)
+            {
+                if (nodeEntry.Value is JsonElement element && element.ValueKind == JsonValueKind.Object)
+                {
+                    var nodeDict = JsonSerializer.Deserialize<Dictionary<string, object>>(element.GetRawText());
+
+                    if (nodeDict != null && nodeDict.ContainsKey("class_type"))
+                    {
+                        var classType = nodeDict["class_type"].ToString();
+
+                        // 如果是负面提示词节点，替换文本
+                        if (classType == "CLIPTextEncode" && nodeDict.ContainsKey("inputs"))
+                        {
+                            var inputs = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                                JsonSerializer.Serialize(nodeDict["inputs"]));
+
+                            // 假设负面提示词节点有一个特定标识，比如包含"negative"关键词
+                            if (inputs != null && inputs.ContainsKey("text") && inputs["text"].ToString().Contains("blurry"))
+                            {
+                                inputs["text"] = negativePrompt;
+                                nodeDict["inputs"] = inputs;
+                                workflow[nodeEntry.Key] = nodeDict;
+                                break; // 找到并替换了就退出循环
+                            }
+                        }
+                    }
+                }
+            }
 
             // 4. 提交任务
             StatusMessage.Text = "🎨 Submitting task to ComfyUI...";

@@ -50,7 +50,7 @@
                                            TextColor="White"
                                            HorizontalOptions="Center"
                                            HeightRequest="40"
-                                           WidthRequest="180"
+                                           WidthRequest="250"
                                            CornerRadius="8"/>
 
                                    <!-- 步骤指引 -->
@@ -102,7 +102,44 @@
                                                   HeightRequest="100"
                                                   FontSize="13"
                                                   TextChanged="OnPromptTextChanged"
-                                                  AutoSize="TextChanges"/>
+                                                  AutoSize="TextChanges"
+                                                  HorizontalOptions="Fill"
+                                                  WidthRequest="250"/>
+                                   </VerticalStackLayout>
+                            </Border>
+
+                            <!-- 负面提示词区域 -->
+                            <Border x:Name="NegativePromptBorder"
+                                    Stroke="#FFA500"
+                                    StrokeThickness="1"
+                                    Padding="12"
+                                    Margin="0"
+                                    BackgroundColor="#FAFAFA"
+                                    StrokeShape="RoundRectangle 10"
+                                    HorizontalOptions="Fill"
+                                    IsVisible="{Binding IsImageSelected}">
+                                   <VerticalStackLayout Spacing="6">
+                                          <StackLayout Orientation="Horizontal" HorizontalOptions="Fill">
+                                                <Label Text="🔻 Negative Prompt (click to toggle)"
+                                                       FontSize="13"
+                                                       FontAttributes="Bold"
+                                                       TextColor="#FFA500"
+                                                       HorizontalOptions="StartAndExpand"/>
+                                                <Switch x:Name="NegativePromptToggle"
+                                                        IsToggled="False"
+                                                        Toggled="OnNegativePromptToggled"
+                                                        HorizontalOptions="End"/>
+                                          </StackLayout>
+                                          <Editor x:Name="NegativePromptEntry"
+                                                  Placeholder="Enter negative prompt here..."
+                                                  PlaceholderColor="#AAAAAA"
+                                                  BackgroundColor="White"
+                                                  TextColor="#333333"
+                                                  HeightRequest="80"
+                                                  FontSize="13"
+                                                  IsVisible="False"
+                                                  HorizontalOptions="Fill"
+                                                  WidthRequest="250"/>
                                    </VerticalStackLayout>
                             </Border>
 
@@ -117,7 +154,7 @@
                             <!-- 三个按钮垂直排列 -->
                             <VerticalStackLayout Spacing="12"
                                                  HorizontalOptions="Center"
-                                                 WidthRequest="200">
+                                                 WidthRequest="250">
                                    <!-- 按钮1: 清除选框 -->
                                    <Button Text="🗑️ Clear"
                                            Clicked="OnClearSelectionsClicked"
@@ -127,7 +164,9 @@
                                            IsEnabled="False"
                                            HeightRequest="42"
                                            CornerRadius="8"
-                                           FontSize="13"/>
+                                           FontSize="13"
+                                           HorizontalOptions="Fill"
+                                           WidthRequest="250"/>
 
                                    <!-- 按钮2: OmniGen2 图像编辑 (只需图片+prompt) -->
                                    <Button Text="🎨 Edit with ComfyUI"
@@ -138,7 +177,9 @@
                                            IsEnabled="False"
                                            HeightRequest="42"
                                            CornerRadius="8"
-                                           FontSize="13"/>
+                                           FontSize="13"
+                                           HorizontalOptions="Fill"
+                                           WidthRequest="250"/>
 
                                    <!-- 按钮3: 3D 重建 (需要选框) -->
                                    <Button Text="🧊 3D Rebuild"
@@ -149,7 +190,9 @@
                                            IsEnabled="False"
                                            HeightRequest="42"
                                            CornerRadius="8"
-                                           FontSize="13"/>
+                                           FontSize="13"
+                                           HorizontalOptions="Fill"
+                                           WidthRequest="250"/>
                             </VerticalStackLayout>
 
                             <ActivityIndicator x:Name="LoadingIndicator"
