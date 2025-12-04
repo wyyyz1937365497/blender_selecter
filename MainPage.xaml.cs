@@ -1009,8 +1009,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
         LoadingIndicator.IsRunning = true;
         Midi3DProgressBar.IsVisible = true; // 显示MIDI-3D进度条
+        Midi3DSpinner.IsVisible = true;     // 显示MIDI-3D环形进度条
+        Midi3DSpinner.IsRunning = true;     // 启动环形进度条
         Midi3DProgressBar.Progress = 0;     // 重置进度
-        StatusMessage.Text = "Sending data to MIDI-3D server...";
+        StatusMessage.Text = "🧊 Sending data to MIDI-3D server...";
+        StatusMessage.TextColor = Colors.Green;
         Midi3DButton.IsEnabled = false;
 
         try
@@ -1070,17 +1073,21 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 }
                 else
                 {
-                    StatusMessage.Text = "Server returned unexpected response";
+                    StatusMessage.Text = "🧊 Server returned unexpected response";
                     StatusMessage.TextColor = Colors.Orange;
                     Midi3DProgressBar.IsVisible = false; // 隐藏进度条
+                    Midi3DSpinner.IsVisible = false;    // 隐藏环形进度条
+                    Midi3DSpinner.IsRunning = false;    // 停止环形进度条
                 }
             }
             else
             {
                 Console.WriteLine($"Error response: {response.Content}");
-                StatusMessage.Text = $"Server error: {response.StatusCode}";
+                StatusMessage.Text = $"🧊 Server error: {response.StatusCode}";
                 StatusMessage.TextColor = Colors.Red;
                 Midi3DProgressBar.IsVisible = false; // 隐藏进度条
+                Midi3DSpinner.IsVisible = false;    // 隐藏环形进度条
+                Midi3DSpinner.IsRunning = false;    // 停止环形进度条
             }
 
             Midi3DButton.IsEnabled = true;
@@ -1088,14 +1095,18 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         catch (Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}");
-            StatusMessage.Text = $"Error: {ex.Message}";
+            StatusMessage.Text = $"🧊 Error: {ex.Message}";
             StatusMessage.TextColor = Colors.Red;
             Midi3DButton.IsEnabled = true;
             Midi3DProgressBar.IsVisible = false; // 隐藏进度条
+            Midi3DSpinner.IsVisible = false;    // 隐藏环形进度条
+            Midi3DSpinner.IsRunning = false;    // 停止环形进度条
         }
         finally
         {
             LoadingIndicator.IsRunning = false;
+            // 不再在这里隐藏进度条，因为任务还在后台运行
+            // 进度条将在PollMidi3DProgress方法中根据任务状态进行处理
         }
     }
 
@@ -1126,14 +1137,33 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                             StatusMessage.Text = $"🧊 3D reconstruction progress: {progress * 100:F1}%";
                         });
                         
-                        // 如果进度达到1（即100%），则完成
-                        if (progress >= 1)
+                        // 检查任务是否已完成（progress=1表示完成）
+                        bool isCompleted = progress >= 1;
+                        string status = progressObject.ContainsKey("status") ? progressObject["status"].ToString() : "";
+                        bool isStatusCompleted = status == "completed";
+                        
+                        // 如果任务已完成（通过progress或status判断）
+                        if (isCompleted || isStatusCompleted)
                         {
                             MainThread.BeginInvokeOnMainThread(() =>
                             {
                                 StatusMessage.Text = "🧊 3D reconstruction completed!";
                                 Midi3DProgressBar.IsVisible = false;
+                                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
+                                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
                             });
+                            
+                            // 如果有model_url，下载模型
+                            if (progressObject.ContainsKey("model_url"))
+                            {
+                                var modelUrl = progressObject["model_url"].ToString();
+                                // 启动一个新任务来下载模型，避免阻塞轮询循环
+                                _ = Task.Run(async () =>
+                                {
+                                    await DownloadAndOutputModel(taskId, modelUrl, client);
+                                });
+                            }
+                            
                             shouldExit = true;
                         }
                     }
@@ -1143,31 +1173,42 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                         MainThread.BeginInvokeOnMainThread(() =>
                         {
                             StatusMessage.Text = $"🧊 3D reconstruction status: {status}";
-                            
-                            // 检查任务是否已完成
-                            if (status == "completed" && progressObject.ContainsKey("model_url"))
-                            {
-                                StatusMessage.Text = "🧊 3D reconstruction completed!";
-                                Midi3DProgressBar.IsVisible = false;
-                                shouldExit = true;
-                            }
-                            else if (status == "failed")
-                            {
-                                StatusMessage.Text = "🧊 3D reconstruction failed!";
-                                Midi3DProgressBar.IsVisible = false;
-                                shouldExit = true;
-                            }
                         });
                         
                         // 检查任务是否已完成，如果完成则下载模型文件
-                        if (status == "completed" && progressObject.ContainsKey("model_url"))
+                        if (status == "completed")
                         {
-                            var modelUrl = progressObject["model_url"].ToString();
-                            await DownloadAndOutputModel(taskId, modelUrl, client);
+                            MainThread.BeginInvokeOnMainThread(() =>
+                            {
+                                StatusMessage.Text = "🧊 3D reconstruction completed!";
+                                Midi3DProgressBar.IsVisible = false;
+                                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
+                                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
+                            });
+                            
+                            // 如果有model_url，下载模型
+                            if (progressObject.ContainsKey("model_url"))
+                            {
+                                var modelUrl = progressObject["model_url"].ToString();
+                                // 启动一个新任务来下载模型，避免阻塞轮询循环
+                                _ = Task.Run(async () =>
+                                {
+                                    await DownloadAndOutputModel(taskId, modelUrl, client);
+                                });
+                            }
+                            
                             shouldExit = true;
                         }
                         else if (status == "failed")
                         {
+                            MainThread.BeginInvokeOnMainThread(() =>
+                            {
+                                StatusMessage.Text = "🧊 3D reconstruction failed!";
+                                StatusMessage.TextColor = Colors.Red;
+                                Midi3DProgressBar.IsVisible = false;
+                                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
+                                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
+                            });
                             Console.WriteLine("MIDI3D_TASK_FAILED:Task failed");
                             shouldExit = true;
                         }
@@ -1182,9 +1223,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Console.WriteLine($"Error polling progress: {ex.Message}");
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    StatusMessage.Text = $"Error polling progress: {ex.Message}";
+                    StatusMessage.Text = $"🧊 Error polling progress: {ex.Message}";
                     StatusMessage.TextColor = Colors.Red;
                     Midi3DProgressBar.IsVisible = false;
+                    Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
+                    Midi3DSpinner.IsRunning = false;   // 停止环形进度条
                 });
                 Console.WriteLine("MIDI3D_TASK_FAILED:Error polling progress");
                 break;
@@ -1203,7 +1246,12 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     {
         try
         {
-            StatusMessage.Text = "🧊 Downloading 3D model...";
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                StatusMessage.Text = "🧊 Downloading 3D model...";
+                Midi3DSpinner.IsVisible = true;    // 显示环形进度条
+                Midi3DSpinner.IsRunning = true;    // 启动环形进度条
+            });
             
             // 构建完整的模型下载URL
             var fullModelUrl = modelUrl.StartsWith("http") ? modelUrl : $"http://127.0.0.1:8000{modelUrl}";
@@ -1229,20 +1277,36 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 
                 // 输出文件路径到标准输出，供Blender插件读取
                 Console.WriteLine($"MIDI3D_MODEL_PATH:{filePath}");
-                StatusMessage.Text = "🧊 3D model downloaded successfully!";
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    StatusMessage.Text = "🧊 3D model downloaded successfully!";
+                    StatusMessage.TextColor = Colors.Green;
+                    Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
+                    Midi3DSpinner.IsRunning = false;   // 停止环形进度条
+                });
             }
             else
             {
                 Console.WriteLine($"MIDI3D_TASK_FAILED:Failed to download model. Status: {downloadResponse.StatusCode}");
-                StatusMessage.Text = "🧊 Failed to download 3D model!";
-                StatusMessage.TextColor = Colors.Red;
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    StatusMessage.Text = "🧊 Failed to download 3D model!";
+                    StatusMessage.TextColor = Colors.Red;
+                    Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
+                    Midi3DSpinner.IsRunning = false;   // 停止环形进度条
+                });
             }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"MIDI3D_TASK_FAILED:Error downloading model: {ex.Message}");
-            StatusMessage.Text = "🧊 Error downloading 3D model!";
-            StatusMessage.TextColor = Colors.Red;
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                StatusMessage.Text = "🧊 Error downloading 3D model!";
+                StatusMessage.TextColor = Colors.Red;
+                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
+                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
+            });
         }
     }
 
@@ -1288,60 +1352,17 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
     private void ClearSelections()
     {
-        MainThread.BeginInvokeOnMainThread(() =>
+        selections.Clear();
+        
+        // 从 OverlayLayout 中移除所有已完成的选框
+        foreach (var box in completedBoxes)
         {
-            try
+            if (OverlayLayout.Children.Contains(box))
             {
-                selections.Clear();
-                // 从 OverlayLayout 中移除所有已完成的选框
-                foreach (var box in completedBoxes)
-                {
-                    if (OverlayLayout.Children.Contains(box))
-                    {
-                        OverlayLayout.Children.Remove(box);
-                    }
-                }
-                completedBoxes.Clear();
+                OverlayLayout.Children.Remove(box);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error clearing selections: {ex.Message}");
-            }
-        });
-    }
-
-    private async Task<HttpResponseMessage> SendToFastAPIServer(ImageSelectionData data)
-    {
-        try
-        {
-            // 构造边界用于multipart/form-data
-            var boundary = "----" + DateTime.Now.Ticks.ToString("x");
-            var multipartContent = new MultipartFormDataContent(boundary);
-
-            // 添加文件
-            var fileBytes = File.ReadAllBytes(data.ImagePath);
-            var fileContent = new ByteArrayContent(fileBytes);
-            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-            multipartContent.Add(fileContent, "file", Path.GetFileName(data.ImagePath));
-
-            // 添加分割模式
-            var segModeContent = new StringContent("box");
-            multipartContent.Add(segModeContent, "seg_mode");
-
-            // 添加边界框（转换为整数并序列化为JSON）
-            var boxesJson = JsonSerializer.Serialize(data.Selections);
-            var boxesContent = new StringContent(boxesJson, Encoding.UTF8, "application/json");
-            multipartContent.Add(boxesContent, "boxes_json");
-
-            // 发送POST请求到FastAPI服务器
-            HttpResponseMessage response = await httpClient.PostAsync("http://localhost:8000/process", multipartContent);
-            return response;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error sending to FastAPI server: {ex.Message}");
-            return new HttpResponseMessage(HttpStatusCode.BadRequest);
-        }
+        completedBoxes.Clear();
     }
 }
 
@@ -1385,10 +1406,4 @@ public class BoundingBox
     public int y1 { get; set; }
     public int x2 { get; set; }
     public int y2 { get; set; }
-}
-
-public class ImageSelectionData
-{
-    public string ImagePath { get; set; }
-    public List<BoundingBox> Selections { get; set; }
 }

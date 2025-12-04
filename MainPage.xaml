@@ -206,6 +206,15 @@
                                          HeightRequest="10"
                                          HorizontalOptions="Fill"/>
 
+                            <!-- 添加MIDI-3D环形进度条 -->
+                            <ActivityIndicator x:Name="Midi3DSpinner"
+                                               IsRunning="False"
+                                               IsVisible="False"
+                                               HeightRequest="40"
+                                               WidthRequest="40"
+                                               Color="#007ACC"
+                                               HorizontalOptions="Center"/>
+                                         
                             <!-- 添加MIDI-3D进度条 -->
                             <ProgressBar x:Name="Midi3DProgressBar"
                                          IsVisible="False"
