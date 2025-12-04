@@ -59,7 +59,9 @@
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 		<!-- ComfyUI Workflow JSON -->
 		<MauiAsset Include="Resources\image_omnigen2_image_edit.json" LogicalName="blender_selecter.Resources.image_omnigen2_image_edit.json" />
+		<MauiAsset Include="Resources\image_qwen_image_edit.json" LogicalName="blender_selecter.Resources.image_qwen_image_edit.json" />
 		<EmbeddedResource Include="Resources\image_omnigen2_image_edit.json" />
+		<EmbeddedResource Include="Resources\image_qwen_image_edit.json" />
 	</ItemGroup>
 
 	<ItemGroup>

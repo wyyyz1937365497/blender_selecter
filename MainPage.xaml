@@ -58,7 +58,7 @@
                                            StrokeThickness="1"
                                            Padding="12,8"
                                            Margin="0,5"
-                                           BackgroundColor="#F8F9FA"
+                                           BackgroundColor="{AppThemeBinding Light=#F8F9FA, Dark=#2D2D2D}"
                                            StrokeShape="RoundRectangle 8"
                                            HorizontalOptions="Fill"
                                            IsVisible="{Binding IsImageSelected}">
@@ -66,16 +66,16 @@
                                                  <Label Text="📋 Workflow Guide"
                                                         FontSize="12"
                                                         FontAttributes="Bold"
-                                                        TextColor="#34495E"/>
+                                                        TextColor="{AppThemeBinding Light=#34495E, Dark=#E0E0E0}"/>
                                                  <Label Text="① Enter prompt → Click 'Edit Image' to AI-generate content"
                                                         FontSize="11"
-                                                        TextColor="#7F8C8D"/>
+                                                        TextColor="{AppThemeBinding Light=#7F8C8D, Dark=#B0B0B0}"/>
                                                  <Label Text="② Draw boxes on edited image to select objects for 3D"
                                                         FontSize="11"
-                                                        TextColor="#7F8C8D"/>
+                                                        TextColor="{AppThemeBinding Light=#7F8C8D, Dark=#B0B0B0}"/>
                                                  <Label Text="③ Click '3D Rebuild' to generate 3D models"
                                                         FontSize="11"
-                                                        TextColor="#7F8C8D"/>
+                                                        TextColor="{AppThemeBinding Light=#7F8C8D, Dark=#B0B0B0}"/>
                                           </VerticalStackLayout>
                                    </Border>
                             </VerticalStackLayout>
@@ -85,7 +85,7 @@
                                     StrokeThickness="1"
                                     Padding="12"
                                     Margin="0"
-                                    BackgroundColor="#FAFAFA"
+                                    BackgroundColor="{AppThemeBinding Light=#FAFAFA, Dark=#2D2D2D}"
                                     StrokeShape="RoundRectangle 10"
                                     HorizontalOptions="Fill"
                                     IsVisible="{Binding IsImageSelected}">
@@ -96,9 +96,9 @@
                                                  TextColor="#9B59B6"/>
                                           <Editor x:Name="PromptEntry"
                                                   Placeholder="e.g., Add a beautiful sunset sky in the background..."
-                                                  PlaceholderColor="#AAAAAA"
-                                                  BackgroundColor="White"
-                                                  TextColor="#333333"
+                                                  PlaceholderColor="{AppThemeBinding Light=#AAAAAA, Dark=#CCCCCC}"
+                                                  BackgroundColor="{AppThemeBinding Light=White, Dark=#1D1D1D}"
+                                                  TextColor="{AppThemeBinding Light=#333333, Dark=#E0E0E0}"
                                                   HeightRequest="100"
                                                   FontSize="13"
                                                   TextChanged="OnPromptTextChanged"
@@ -108,13 +108,45 @@
                                    </VerticalStackLayout>
                             </Border>
 
+                            <!-- 模型选择下拉框 -->
+                            <Border x:Name="ModelSelectionBorder"
+                                    Stroke="#3498DB"
+                                    StrokeThickness="1"
+                                    Padding="12"
+                                    Margin="0"
+                                    BackgroundColor="{AppThemeBinding Light=#FAFAFA, Dark=#2D2D2D}"
+                                    StrokeShape="RoundRectangle 10"
+                                    HorizontalOptions="Fill"
+                                    IsVisible="{Binding IsImageSelected}">
+                                   <VerticalStackLayout Spacing="6">
+                                          <Label Text="🤖 Select AI Model"
+                                                 FontSize="13"
+                                                 FontAttributes="Bold"
+                                                 TextColor="#3498DB"/>
+                                          <Picker x:Name="ModelPicker"
+                                                  Title="Choose Model"
+                                                  SelectedIndexChanged="OnModelPickerSelectedIndexChanged"
+                                                  HorizontalOptions="Fill"
+                                                  WidthRequest="250"
+                                                  BackgroundColor="{AppThemeBinding Light=White, Dark=#2D2D2D}"
+                                                  TextColor="{AppThemeBinding Light=Black, Dark=White}">
+                                                 <Picker.ItemsSource>
+                                                        <x:Array Type="{x:Type x:String}">
+                                                               <x:String>OmniGen2</x:String>
+                                                               <x:String>Qwen-Image-Edit</x:String>
+                                                        </x:Array>
+                                                 </Picker.ItemsSource>
+                                          </Picker>
+                                   </VerticalStackLayout>
+                            </Border>
+
                             <!-- 负面提示词区域 -->
                             <Border x:Name="NegativePromptBorder"
                                     Stroke="#FFA500"
                                     StrokeThickness="1"
                                     Padding="12"
                                     Margin="0"
-                                    BackgroundColor="#FAFAFA"
+                                    BackgroundColor="{AppThemeBinding Light=#FAFAFA, Dark=#2D2D2D}"
                                     StrokeShape="RoundRectangle 10"
                                     HorizontalOptions="Fill"
                                     IsVisible="{Binding IsImageSelected}">
@@ -132,9 +164,9 @@
                                           </StackLayout>
                                           <Editor x:Name="NegativePromptEntry"
                                                   Placeholder="Enter negative prompt here..."
-                                                  PlaceholderColor="#AAAAAA"
-                                                  BackgroundColor="White"
-                                                  TextColor="#333333"
+                                                  PlaceholderColor="{AppThemeBinding Light=#AAAAAA, Dark=#CCCCCC}"
+                                                  BackgroundColor="{AppThemeBinding Light=White, Dark=#1D1D1D}"
+                                                  TextColor="{AppThemeBinding Light=#333333, Dark=#E0E0E0}"
                                                   HeightRequest="80"
                                                   FontSize="13"
                                                   IsVisible="False"

@@ -30,6 +30,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private bool isImageLoading = false;
     private ComfyUIService comfyUIService = new ComfyUIService();
     private bool isComfyUIProcessing = false;
+    private bool isMidi3DProcessing = false; // 添加缺失的变量
     // 默认负面提示词
     private const string DefaultNegativePrompt = "low quality, bad anatomy, bad hands, bad eyes, bad proportions, duplicate, cropped, worst quality, low resolution, artifacts, ugly, deformed, mutated hands, extra fingers, fewer fingers, jpeg artifacts";
 
@@ -54,6 +55,11 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
     }
 
+    // 添加模型选择属性
+    private string selectedModel = "OmniGen2";
+    
+    public bool IsImageSelected => !string.IsNullOrEmpty(selectedImagePath);
+
     public MainPage()
     {
         InitializeComponent();
@@ -72,6 +78,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
         // 监听 OverlayLayout 的大小变化，用于重新绘制选框
         OverlayLayout.SizeChanged += OnOverlayLayoutSizeChanged;
+
+        // 设置模型选择器默认选项
+        ModelPicker.SelectedIndex = 0;
 
         // 如果从命令行传入了图片路径，则自动加载
         if (!string.IsNullOrEmpty(ImagePathFromArgs))
@@ -832,7 +841,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         LoadingIndicator.IsRunning = true;
         ComfyUIProgressBar.IsVisible = true; // 显示ComfyUI进度条
         ComfyUIProgressBar.Progress = 0;     // 重置进度
-        StatusMessage.Text = "🎨 Uploading image to ComfyUI...";
         OmniGen2Button.IsEnabled = false;
 
         try
@@ -843,21 +851,28 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             // 1. 上传图片到ComfyUI
             var uploadResult = await comfyUIService.UploadImageAsync(selectedImagePath);
             string imageName = uploadResult.ContainsKey("name") ? uploadResult["name"].ToString() : "";
-
+            
             if (string.IsNullOrEmpty(imageName))
             {
                 throw new Exception("Failed to upload image to ComfyUI");
             }
 
             Console.WriteLine($"Image uploaded successfully: {imageName}");
-            StatusMessage.Text = "🎨 Image uploaded, loading workflow...";
 
-            // 2. 从资源加载工作流
-            var workflow = comfyUIService.LoadWorkflowFromResource();
+            // 2. 根据选择的模型加载相应的工作流
+            Dictionary<string, object> workflow;
+            if (selectedModel == "Qwen-Image-Edit")
+            {
+                workflow = comfyUIService.LoadWorkflowFromResource("image_qwen_image_edit.json");
+            }
+            else
+            {
+                workflow = comfyUIService.LoadWorkflowFromResource(); // 默认加载OmniGen2
+            }
 
             // 3. 替换工作流中的文本和图片
             workflow = comfyUIService.ReplacePromptInWorkflow(workflow, userPrompt, imageName);
-
+            
             // 查找并替换负面提示词
             foreach (var nodeEntry in workflow)
             {
@@ -884,23 +899,44 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                 break; // 找到并替换了就退出循环
                             }
                         }
+                        
+                        // 对于Qwen-Image-Edit模型，需要特别处理TextEncodeQwenImageEditPlus节点
+                        if (classType == "TextEncodeQwenImageEditPlus" && nodeDict.ContainsKey("inputs"))
+                        {
+                            var inputs = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                                JsonSerializer.Serialize(nodeDict["inputs"]));
+                            
+                            if (inputs != null && inputs.ContainsKey("prompt"))
+                            {
+                                // 对于正面提示词节点（非空提示词）
+                                if (!string.IsNullOrWhiteSpace(inputs["prompt"].ToString()))
+                                {
+                                    inputs["prompt"] = userPrompt;
+                                }
+                                // 对于负面提示词节点（空提示词）
+                                else
+                                {
+                                    inputs["prompt"] = negativePrompt;
+                                }
+                                
+                                nodeDict["inputs"] = inputs;
+                                workflow[nodeEntry.Key] = nodeDict;
+                            }
+                        }
                     }
                 }
             }
 
             // 4. 提交任务
-            StatusMessage.Text = "🎨 Submitting task to ComfyUI...";
             var (promptId, clientId) = await comfyUIService.QueuePromptAsync(workflow);
             Console.WriteLine($"Task submitted, ID: {promptId}");
 
             // 5. 等待任务完成并显示进度
-            StatusMessage.Text = "🎨 Processing image with ComfyUI...";
-            bool completed = await comfyUIService.WaitForCompletionAsync(promptId, clientId, progress =>
+            bool completed = await comfyUIService.WaitForCompletionAsync(promptId, clientId, progress => 
             {
-                MainThread.BeginInvokeOnMainThread(() =>
+                MainThread.BeginInvokeOnMainThread(() => 
                 {
                     ComfyUIProgressBar.Progress = progress / 100.0; // 更新进度条
-                    StatusMessage.Text = $"🎨 Processing with ComfyUI... {progress}%";
                 });
             });
 
@@ -910,9 +946,8 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
 
             // 6. 获取结果图片
-            StatusMessage.Text = "🎨 Retrieving generated image...";
             var history = await comfyUIService.GetHistoryAsync(promptId);
-
+            
             // 创建输出目录
             string outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "output");
             if (!Directory.Exists(outputDir))
@@ -923,30 +958,30 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             // 保存结果图片
             bool imageSaved = false;
             string savedImagePath = "";
-
+            
             if (history.ContainsKey(promptId))
             {
                 var promptHistory = JsonSerializer.Deserialize<Dictionary<string, object>>(history[promptId].ToString());
                 if (promptHistory != null && promptHistory.ContainsKey("outputs"))
                 {
                     var outputs = JsonSerializer.Deserialize<Dictionary<string, object>>(promptHistory["outputs"].ToString());
-
+                    
                     foreach (var nodeOutput in outputs)
                     {
                         var nodeData = JsonSerializer.Deserialize<Dictionary<string, object>>(nodeOutput.Value.ToString());
                         if (nodeData.ContainsKey("images"))
                         {
                             var images = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(nodeData["images"].ToString());
-
+                            
                             foreach (var image in images)
                             {
                                 string filename = image["filename"].ToString();
                                 string subfolder = image.ContainsKey("subfolder") ? image["subfolder"].ToString() : "";
                                 string folderType = image.ContainsKey("type") ? image["type"].ToString() : "output";
-
+                                
                                 savedImagePath = Path.Combine(outputDir, $"output_{filename}");
                                 imageSaved = await comfyUIService.DownloadImageAsync(filename, subfolder, folderType, savedImagePath);
-
+                                
                                 if (imageSaved)
                                 {
                                     Console.WriteLine($"Image saved to: {savedImagePath}");
@@ -954,7 +989,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                 }
                             }
                         }
-
+                        
                         if (imageSaved) break;
                     }
                 }
@@ -966,12 +1001,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
 
             // 7. 更新UI显示新图片
-            MainThread.BeginInvokeOnMainThread(() =>
+            MainThread.BeginInvokeOnMainThread(() => 
             {
                 selectedImagePath = savedImagePath;
                 MainImage.Source = ImageSource.FromFile(savedImagePath);
-                StatusMessage.Text = "✨ Image edited successfully! You can now draw boxes for 3D reconstruction.";
-                StatusMessage.TextColor = Colors.Green;
                 ComfyUIProgressBar.IsVisible = false; // 隐藏进度条
 
                 // 显示选框提示
@@ -984,16 +1017,14 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         catch (Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}");
-            MainThread.BeginInvokeOnMainThread(() =>
+            MainThread.BeginInvokeOnMainThread(() => 
             {
-                StatusMessage.Text = $"Error: {ex.Message}";
-                StatusMessage.TextColor = Colors.Red;
                 ComfyUIProgressBar.IsVisible = false; // 隐藏进度条
             });
         }
         finally
         {
-            MainThread.BeginInvokeOnMainThread(() =>
+            MainThread.BeginInvokeOnMainThread(() => 
             {
                 LoadingIndicator.IsRunning = false;
                 OmniGen2Button.IsEnabled = true;
@@ -1007,313 +1038,268 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         if (string.IsNullOrEmpty(selectedImagePath) || selections.Count == 0)
             return;
 
+        // 防止重复处理
+        if (isMidi3DProcessing)
+        {
+            await DisplayAlert("Processing", "MIDI-3D is already processing. Please wait for it to complete.", "OK");
+            return;
+        }
+
+        isMidi3DProcessing = true;
         LoadingIndicator.IsRunning = true;
-        Midi3DProgressBar.IsVisible = true; // 显示MIDI-3D进度条
-        Midi3DSpinner.IsVisible = true;     // 显示MIDI-3D环形进度条
-        Midi3DSpinner.IsRunning = true;     // 启动环形进度条
-        Midi3DProgressBar.Progress = 0;     // 重置进度
-        StatusMessage.Text = "🧊 Sending data to MIDI-3D server...";
-        StatusMessage.TextColor = Colors.Green;
+        Midi3DSpinner.IsVisible = true;
+        Midi3DSpinner.IsRunning = true;
+        Midi3DProgressBar.IsVisible = true;
+        Midi3DProgressBar.Progress = 0;
+        // 移除了对StatusMessage的所有引用
         Midi3DButton.IsEnabled = false;
 
         try
         {
-            var boxes = selections.Select(s => new BoundingBox
+            // 准备要发送的数据
+            var imageData = Convert.ToBase64String(File.ReadAllBytes(selectedImagePath));
+            var boundingBoxes = selections.Select(s => new BoundingBox
             {
-                x1 = (int)Math.Round(Math.Min(s.X1, s.X2)),
-                y1 = (int)Math.Round(Math.Min(s.Y1, s.Y2)),
-                x2 = (int)Math.Round(Math.Max(s.X1, s.X2)),
-                y2 = (int)Math.Round(Math.Max(s.Y1, s.Y2))
+                x1 = (int)s.X1,
+                y1 = (int)s.Y1,
+                x2 = (int)s.X2,
+                y2 = (int)s.Y2
             }).ToList();
 
-            var boxesJson = JsonSerializer.Serialize(boxes);
-            Console.WriteLine($"Boxes JSON: {boxesJson}");
-
-            // 创建RestClient - 连接到 MIDI-3D 服务
-            var client = new RestClient("http://127.0.0.1:8000");
-
-            // 创建请求
-            var request = new RestRequest("/process", Method.Post);
-
-            // 添加查询参数
-            request.AddParameter("seg_mode", "box");
-            request.AddParameter("boxes_json", boxesJson);
-            request.AddParameter("polygon_refinement", "true");
-            request.AddParameter("detect_threshold", "0.3");
-
-            // 添加文件
-            request.AddFile("file", selectedImagePath, "image/jpeg");
-
-            Console.WriteLine($"Sending request to MIDI-3D: {client.BuildUri(request)}");
-
-            // 发送请求
-            var response = await client.ExecuteAsync(request);
-
-            if (response.IsSuccessful)
+            var payload = new
             {
-                Console.WriteLine($"Server response: {response.Content}");
+                image_data = imageData,
+                bounding_boxes = boundingBoxes
+            };
 
-                var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(response.Content);
+            // 发送到服务器
+            string jsonPayload = JsonSerializer.Serialize(payload);
+            var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+            var response = await httpClient.PostAsync("http://127.0.0.1:8000/process_image", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseContent = await response.Content.ReadAsStringAsync();
+                var responseObject = JsonSerializer.Deserialize<Dictionary<string, object>>(responseContent);
 
                 if (responseObject != null && responseObject.ContainsKey("task_id"))
                 {
-                    var taskId = responseObject["task_id"].ToString();
-                    TaskIdLabel.Text = $"MIDI-3D Task ID: {taskId}";
-                    TaskIdLabel.IsVisible = true;
-                    StatusMessage.Text = "🧊 3D reconstruction started!";
-                    StatusMessage.TextColor = Colors.Green;
+                    string taskId = responseObject["task_id"].ToString();
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        TaskIdLabel.Text = $"Task ID: {taskId}";
+                        TaskIdLabel.IsVisible = true;
+                        // 移除了对StatusMessage的所有引用
+                    });
 
-                    // 输出MIDI3D任务ID到控制台，供Blender插件读取
+                    // 输出任务ID到控制台（供Blender插件读取）
                     Console.WriteLine($"MIDI3D_TASK_ID:{taskId}");
 
-                    // 启动一个任务来轮询进度
-                    _ = Task.Run(async () =>
-                    {
-                        await PollMidi3DProgress(taskId, client);
-                    });
+                    // 轮询任务状态
+                    await PollMidi3DTaskStatus(taskId);
                 }
                 else
                 {
-                    StatusMessage.Text = "🧊 Server returned unexpected response";
-                    StatusMessage.TextColor = Colors.Orange;
-                    Midi3DProgressBar.IsVisible = false; // 隐藏进度条
-                    Midi3DSpinner.IsVisible = false;    // 隐藏环形进度条
-                    Midi3DSpinner.IsRunning = false;    // 停止环形进度条
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        // 移除了对StatusMessage的所有引用
+                        TaskIdLabel.Text = "Server returned unexpected response";
+                        TaskIdLabel.IsVisible = true;
+                        TaskIdLabel.TextColor = Colors.Orange;
+                    });
                 }
             }
             else
             {
-                Console.WriteLine($"Error response: {response.Content}");
-                StatusMessage.Text = $"🧊 Server error: {response.StatusCode}";
-                StatusMessage.TextColor = Colors.Red;
-                Midi3DProgressBar.IsVisible = false; // 隐藏进度条
-                Midi3DSpinner.IsVisible = false;    // 隐藏环形进度条
-                Midi3DSpinner.IsRunning = false;    // 停止环形进度条
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    // 移除了对StatusMessage的所有引用
+                    TaskIdLabel.Text = $"Server error: {response.StatusCode}";
+                    TaskIdLabel.IsVisible = true;
+                    TaskIdLabel.TextColor = Colors.Red;
+                });
             }
-
-            Midi3DButton.IsEnabled = true;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}");
-            StatusMessage.Text = $"🧊 Error: {ex.Message}";
-            StatusMessage.TextColor = Colors.Red;
-            Midi3DButton.IsEnabled = true;
-            Midi3DProgressBar.IsVisible = false; // 隐藏进度条
-            Midi3DSpinner.IsVisible = false;    // 隐藏环形进度条
-            Midi3DSpinner.IsRunning = false;    // 停止环形进度条
-        }
-        finally
-        {
-            LoadingIndicator.IsRunning = false;
-            // 不再在这里隐藏进度条，因为任务还在后台运行
-            // 进度条将在PollMidi3DProgress方法中根据任务状态进行处理
+            MainThread.BeginInvokeOnMainThread(() =>
+            {
+                // 移除了对StatusMessage的所有引用
+                TaskIdLabel.Text = $"Error: {ex.Message}";
+                TaskIdLabel.IsVisible = true;
+                TaskIdLabel.TextColor = Colors.Red;
+            });
         }
     }
 
-    // 轮询MIDI-3D进度的方法
-    private async Task PollMidi3DProgress(string taskId, RestClient client)
+    private async Task PollMidi3DTaskStatus(string taskId)
     {
-        bool shouldExit = false;
-        while (!shouldExit)
+        string statusUrl = $"http://127.0.0.1:8000/task_status/{taskId}";
+        bool taskCompleted = false;
+        string modelUrl = "";
+
+        while (!taskCompleted)
         {
             try
             {
-                // 修改为使用新的API端点
-                var progressRequest = new RestRequest($"/status/{taskId}", Method.Get);
-                var progressResponse = await client.ExecuteAsync(progressRequest);
-
-                if (progressResponse.IsSuccessful)
+                var response = await httpClient.GetAsync(statusUrl);
+                if (response.IsSuccessStatusCode)
                 {
-                    var progressObject = JsonSerializer.Deserialize<Dictionary<string, object>>(progressResponse.Content);
+                    var content = await response.Content.ReadAsStringAsync();
+                    var statusObject = JsonSerializer.Deserialize<Dictionary<string, object>>(content);
 
-                    if (progressObject != null && progressObject.ContainsKey("progress"))
+                    if (statusObject != null)
                     {
-                        var progress = double.Parse(progressObject["progress"].ToString());
-
+                        string status = statusObject.ContainsKey("status") ? statusObject["status"].ToString() : "unknown";
                         MainThread.BeginInvokeOnMainThread(() =>
                         {
-                            // MIDI3D返回的进度是0到1的范围，直接使用即可
-                            Midi3DProgressBar.Progress = progress;
-                            StatusMessage.Text = $"🧊 3D reconstruction progress: {progress * 100:F1}%";
+                            // 移除了对StatusMessage的所有引用
                         });
 
-                        // 检查任务是否已完成（progress=1表示完成）
-                        bool isCompleted = progress >= 1;
-                        string status = progressObject.ContainsKey("status") ? progressObject["status"].ToString() : "";
-                        bool isStatusCompleted = status == "completed";
-
-                        // 如果任务已完成（通过progress或status判断）
-                        if (isCompleted || isStatusCompleted)
+                        switch (status)
                         {
-                            MainThread.BeginInvokeOnMainThread(() =>
-                            {
-                                StatusMessage.Text = "🧊 3D reconstruction completed!";
-                                Midi3DProgressBar.IsVisible = false;
-                                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
-                                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
-                            });
-
-                            // 如果有model_url，下载模型
-                            if (progressObject.ContainsKey("model_url"))
-                            {
-                                var modelUrl = progressObject["model_url"].ToString();
-                                // 启动一个新任务来下载模型，避免阻塞轮询循环
-                                _ = Task.Run(async () =>
+                            case "completed":
+                                if (statusObject.ContainsKey("result") && statusObject["result"] is JsonElement resultElement)
                                 {
-                                    await DownloadAndOutputModel(taskId, modelUrl, client);
-                                });
-                            }
+                                    var resultDict = JsonSerializer.Deserialize<Dictionary<string, string>>(resultElement.GetRawText());
+                                    if (resultDict != null && resultDict.ContainsKey("model_url"))
+                                    {
+                                        modelUrl = resultDict["model_url"];
+                                        taskCompleted = true;
+                                        MainThread.BeginInvokeOnMainThread(() =>
+                                        {
+                                            // 移除了对StatusMessage的所有引用
+                                        });
+                                    }
+                                }
+                                break;
 
-                            shouldExit = true;
-                        }
-                    }
-                    else if (progressObject != null && progressObject.ContainsKey("status"))
-                    {
-                        var status = progressObject["status"].ToString();
-                        MainThread.BeginInvokeOnMainThread(() =>
-                        {
-                            StatusMessage.Text = $"🧊 3D reconstruction status: {status}";
-                        });
-
-                        // 检查任务是否已完成，如果完成则下载模型文件
-                        if (status == "completed")
-                        {
-                            MainThread.BeginInvokeOnMainThread(() =>
-                            {
-                                StatusMessage.Text = "🧊 3D reconstruction completed!";
-                                Midi3DProgressBar.IsVisible = false;
-                                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
-                                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
-                            });
-
-                            // 如果有model_url，下载模型
-                            if (progressObject.ContainsKey("model_url"))
-                            {
-                                var modelUrl = progressObject["model_url"].ToString();
-                                // 启动一个新任务来下载模型，避免阻塞轮询循环
-                                _ = Task.Run(async () =>
+                            case "failed":
+                                MainThread.BeginInvokeOnMainThread(() =>
                                 {
-                                    await DownloadAndOutputModel(taskId, modelUrl, client);
+                                    // 移除了对StatusMessage的所有引用
+                                    TaskIdLabel.Text = "3D reconstruction failed!";
+                                    TaskIdLabel.TextColor = Colors.Red;
                                 });
-                            }
+                                return;
 
-                            shouldExit = true;
-                        }
-                        else if (status == "failed")
-                        {
-                            MainThread.BeginInvokeOnMainThread(() =>
-                            {
-                                StatusMessage.Text = "🧊 3D reconstruction failed!";
-                                StatusMessage.TextColor = Colors.Red;
-                                Midi3DProgressBar.IsVisible = false;
-                                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
-                                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
-                            });
-                            Console.WriteLine("MIDI3D_TASK_FAILED:Task failed");
-                            shouldExit = true;
+                            default:
+                                if (statusObject.ContainsKey("progress"))
+                                {
+                                    double progress = double.Parse(statusObject["progress"].ToString());
+                                    MainThread.BeginInvokeOnMainThread(() =>
+                                    {
+                                        Midi3DProgressBar.Progress = progress;
+                                        // 移除了对StatusMessage的所有引用
+                                    });
+                                }
+                                else
+                                {
+                                    MainThread.BeginInvokeOnMainThread(() =>
+                                    {
+                                        // 移除了对StatusMessage的所有引用
+                                    });
+                                }
+                                break;
                         }
                     }
                 }
-
-                // 等待一段时间再轮询
-                await Task.Delay(1000);
+                else
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        // 移除了对StatusMessage的所有引用
+                        TaskIdLabel.Text = $"Server error: {response.StatusCode}";
+                        TaskIdLabel.TextColor = Colors.Red;
+                    });
+                    break;
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error polling progress: {ex.Message}");
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    StatusMessage.Text = $"🧊 Error polling progress: {ex.Message}";
-                    StatusMessage.TextColor = Colors.Red;
-                    Midi3DProgressBar.IsVisible = false;
-                    Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
-                    Midi3DSpinner.IsRunning = false;   // 停止环形进度条
+                    // 移除了对StatusMessage的所有引用
+                    TaskIdLabel.Text = $"Error polling progress: {ex.Message}";
+                    TaskIdLabel.TextColor = Colors.Red;
                 });
-                Console.WriteLine("MIDI3D_TASK_FAILED:Error polling progress");
                 break;
             }
-        }
-    }
 
-    /// <summary>
-    /// 下载模型文件并输出文件路径到标准输出
-    /// </summary>
-    /// <param name="taskId">任务ID</param>
-    /// <param name="modelUrl">模型文件URL</param>
-    /// <param name="client">RestClient实例</param>
-    /// <returns>Task</returns>
-    private async Task DownloadAndOutputModel(string taskId, string modelUrl, RestClient client)
-    {
-        try
+            // 等待一段时间再轮询
+            await Task.Delay(1000);
+        }
+
+        // 下载模型文件
+        if (!string.IsNullOrEmpty(modelUrl))
         {
             MainThread.BeginInvokeOnMainThread(() =>
             {
-                StatusMessage.Text = "🧊 Downloading 3D model...";
-                Midi3DSpinner.IsVisible = true;    // 显示环形进度条
-                Midi3DSpinner.IsRunning = true;    // 启动环形进度条
+                // 移除了对StatusMessage的所有引用
             });
 
-            // 构建完整的模型下载URL
-            var fullModelUrl = modelUrl.StartsWith("http") ? modelUrl : $"http://127.0.0.1:8000{modelUrl}";
-
-            // 创建输出目录
-            string outputDir = Path.Combine(Path.GetTempPath(), "MIDI3D_Models");
-            if (!Directory.Exists(outputDir))
+            try
             {
-                Directory.CreateDirectory(outputDir);
+                string outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "output");
+                if (!Directory.Exists(outputDir))
+                {
+                    Directory.CreateDirectory(outputDir);
+                }
+
+                string fileName = $"model_{taskId}.glb";
+                string filePath = Path.Combine(outputDir, fileName);
+
+                var response = await httpClient.GetAsync(modelUrl);
+                if (response.IsSuccessStatusCode)
+                {
+                    var fileBytes = await response.Content.ReadAsByteArrayAsync();
+                    await File.WriteAllBytesAsync(filePath, fileBytes);
+
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        // 移除了对StatusMessage的所有引用
+                        TaskIdLabel.Text = "3D model downloaded successfully!";
+                        TaskIdLabel.TextColor = Colors.Green;
+                    });
+
+                    // 输出模型路径到控制台（供Blender插件读取）
+                    Console.WriteLine($"MIDI3D_MODEL_PATH:{filePath}");
+                }
+                else
+                {
+                    MainThread.BeginInvokeOnMainThread(() =>
+                    {
+                        // 移除了对StatusMessage的所有引用
+                        TaskIdLabel.Text = "Failed to download 3D model!";
+                        TaskIdLabel.TextColor = Colors.Red;
+                    });
+                }
             }
-
-            // 创建文件路径
-            string filePath = Path.Combine(outputDir, $"{taskId}.glb");
-
-            // 下载文件
-            var downloadRequest = new RestRequest(fullModelUrl, Method.Get);
-            var downloadResponse = await client.ExecuteAsync(downloadRequest);
-
-            if (downloadResponse.IsSuccessful)
+            catch (Exception ex)
             {
-                // 保存文件
-                await File.WriteAllBytesAsync(filePath, downloadResponse.RawBytes);
-
-                // 输出文件路径到标准输出，供Blender插件读取
-                Console.WriteLine($"MIDI3D_MODEL_PATH:{filePath}");
                 MainThread.BeginInvokeOnMainThread(() =>
                 {
-                    StatusMessage.Text = "🧊 3D model downloaded successfully!";
-                    StatusMessage.TextColor = Colors.Green;
-                    Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
-                    Midi3DSpinner.IsRunning = false;   // 停止环形进度条
-                });
-
-                // 等待0.1秒后自动关闭程序，并将焦点切回Blender
-                await Task.Delay(100);
-                SwitchFocusToBlenderAndClose();
-            }
-            else
-            {
-                Console.WriteLine($"MIDI3D_TASK_FAILED:Failed to download model. Status: {downloadResponse.StatusCode}");
-                MainThread.BeginInvokeOnMainThread(() =>
-                {
-                    StatusMessage.Text = "🧊 Failed to download 3D model!";
-                    StatusMessage.TextColor = Colors.Red;
-                    Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
-                    Midi3DSpinner.IsRunning = false;   // 停止环形进度条
+                    // 移除了对StatusMessage的所有引用
+                    TaskIdLabel.Text = $"Error downloading 3D model: {ex.Message}";
+                    TaskIdLabel.TextColor = Colors.Red;
                 });
             }
         }
-        catch (Exception ex)
+
+        // 重置UI状态
+        MainThread.BeginInvokeOnMainThread(() =>
         {
-            Console.WriteLine($"MIDI3D_TASK_FAILED:Error downloading model: {ex.Message}");
-            MainThread.BeginInvokeOnMainThread(() =>
-            {
-                StatusMessage.Text = "🧊 Error downloading 3D model!";
-                StatusMessage.TextColor = Colors.Red;
-                Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
-                Midi3DSpinner.IsRunning = false;   // 停止环形进度条
-            });
-        }
+            LoadingIndicator.IsRunning = false;
+            Midi3DSpinner.IsVisible = false;
+            Midi3DSpinner.IsRunning = false;
+            Midi3DProgressBar.IsVisible = false;
+            Midi3DButton.IsEnabled = true;
+            isMidi3DProcessing = false;
+        });
     }
+
 
     private void OnClearSelectionsClicked(object sender, EventArgs e)
     {
@@ -1353,8 +1339,6 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         OmniGen2Button.IsEnabled = hasImage && hasPrompt;
     }
 
-    public bool IsImageSelected => !string.IsNullOrEmpty(selectedImagePath);
-
     private void ClearSelections()
     {
         selections.Clear();
@@ -1368,6 +1352,18 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
         }
         completedBoxes.Clear();
+    }
+
+    // 添加模型选择器事件处理函数
+    private void OnModelPickerSelectedIndexChanged(object sender, EventArgs e)
+    {
+        if (ModelPicker.SelectedIndex != -1)
+        {
+            selectedModel = ModelPicker.SelectedItem.ToString();
+            
+            // 不再需要在这里显示状态消息，因为Picker本身就显示了当前选择
+            // 用户可以直接看到当前选择的模型
+        }
     }
 
 #if WINDOWS
