@@ -1,9 +1,9 @@
 {
   "3": {
     "inputs": {
-      "seed": 477315547380083,
-      "steps": 20,
-      "cfg": 2.5,
+      "seed": 1095597041915836,
+      "steps": 4,
+      "cfg": 1,
       "sampler_name": "euler",
       "scheduler": "simple",
       "denoise": 1,
@@ -92,7 +92,7 @@
     "inputs": {
       "shift": 3,
       "model": [
-        "37",
+        "89",
         0
       ]
     },
@@ -116,7 +116,7 @@
   },
   "78": {
     "inputs": {
-      "image": "image_qwen_image_edit_2509_input_image.png"
+      "image": "00_rgb.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -137,6 +137,20 @@
     "class_type": "VAEEncode",
     "_meta": {
       "title": "VAE编码"
+    }
+  },
+  "89": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
     }
   },
   "110": {
@@ -162,7 +176,7 @@
   },
   "111": {
     "inputs": {
-      "prompt": "Replace the cat with a dalmatian",
+      "prompt": "replace the dog with a cat",
       "clip": [
         "38",
         0
