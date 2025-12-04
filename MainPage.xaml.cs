@@ -843,7 +843,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             // 1. 上传图片到ComfyUI
             var uploadResult = await comfyUIService.UploadImageAsync(selectedImagePath);
             string imageName = uploadResult.ContainsKey("name") ? uploadResult["name"].ToString() : "";
-            
+
             if (string.IsNullOrEmpty(imageName))
             {
                 throw new Exception("Failed to upload image to ComfyUI");
@@ -857,7 +857,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
             // 3. 替换工作流中的文本和图片
             workflow = comfyUIService.ReplacePromptInWorkflow(workflow, userPrompt, imageName);
-            
+
             // 查找并替换负面提示词
             foreach (var nodeEntry in workflow)
             {
@@ -895,9 +895,9 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
 
             // 5. 等待任务完成并显示进度
             StatusMessage.Text = "🎨 Processing image with ComfyUI...";
-            bool completed = await comfyUIService.WaitForCompletionAsync(promptId, clientId, progress => 
+            bool completed = await comfyUIService.WaitForCompletionAsync(promptId, clientId, progress =>
             {
-                MainThread.BeginInvokeOnMainThread(() => 
+                MainThread.BeginInvokeOnMainThread(() =>
                 {
                     ComfyUIProgressBar.Progress = progress / 100.0; // 更新进度条
                     StatusMessage.Text = $"🎨 Processing with ComfyUI... {progress}%";
@@ -912,7 +912,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             // 6. 获取结果图片
             StatusMessage.Text = "🎨 Retrieving generated image...";
             var history = await comfyUIService.GetHistoryAsync(promptId);
-            
+
             // 创建输出目录
             string outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "output");
             if (!Directory.Exists(outputDir))
@@ -923,30 +923,30 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             // 保存结果图片
             bool imageSaved = false;
             string savedImagePath = "";
-            
+
             if (history.ContainsKey(promptId))
             {
                 var promptHistory = JsonSerializer.Deserialize<Dictionary<string, object>>(history[promptId].ToString());
                 if (promptHistory != null && promptHistory.ContainsKey("outputs"))
                 {
                     var outputs = JsonSerializer.Deserialize<Dictionary<string, object>>(promptHistory["outputs"].ToString());
-                    
+
                     foreach (var nodeOutput in outputs)
                     {
                         var nodeData = JsonSerializer.Deserialize<Dictionary<string, object>>(nodeOutput.Value.ToString());
                         if (nodeData.ContainsKey("images"))
                         {
                             var images = JsonSerializer.Deserialize<List<Dictionary<string, object>>>(nodeData["images"].ToString());
-                            
+
                             foreach (var image in images)
                             {
                                 string filename = image["filename"].ToString();
                                 string subfolder = image.ContainsKey("subfolder") ? image["subfolder"].ToString() : "";
                                 string folderType = image.ContainsKey("type") ? image["type"].ToString() : "output";
-                                
+
                                 savedImagePath = Path.Combine(outputDir, $"output_{filename}");
                                 imageSaved = await comfyUIService.DownloadImageAsync(filename, subfolder, folderType, savedImagePath);
-                                
+
                                 if (imageSaved)
                                 {
                                     Console.WriteLine($"Image saved to: {savedImagePath}");
@@ -954,7 +954,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                 }
                             }
                         }
-                        
+
                         if (imageSaved) break;
                     }
                 }
@@ -966,7 +966,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
 
             // 7. 更新UI显示新图片
-            MainThread.BeginInvokeOnMainThread(() => 
+            MainThread.BeginInvokeOnMainThread(() =>
             {
                 selectedImagePath = savedImagePath;
                 MainImage.Source = ImageSource.FromFile(savedImagePath);
@@ -984,7 +984,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         catch (Exception ex)
         {
             Console.WriteLine($"Exception: {ex.Message}");
-            MainThread.BeginInvokeOnMainThread(() => 
+            MainThread.BeginInvokeOnMainThread(() =>
             {
                 StatusMessage.Text = $"Error: {ex.Message}";
                 StatusMessage.TextColor = Colors.Red;
@@ -993,7 +993,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
         }
         finally
         {
-            MainThread.BeginInvokeOnMainThread(() => 
+            MainThread.BeginInvokeOnMainThread(() =>
             {
                 LoadingIndicator.IsRunning = false;
                 OmniGen2Button.IsEnabled = true;
@@ -1062,12 +1062,13 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     TaskIdLabel.IsVisible = true;
                     StatusMessage.Text = "🧊 3D reconstruction started!";
                     StatusMessage.TextColor = Colors.Green;
-                    
+
                     // 输出MIDI3D任务ID到控制台，供Blender插件读取
                     Console.WriteLine($"MIDI3D_TASK_ID:{taskId}");
-                    
+
                     // 启动一个任务来轮询进度
-                    _ = Task.Run(async () => {
+                    _ = Task.Run(async () =>
+                    {
                         await PollMidi3DProgress(taskId, client);
                     });
                 }
@@ -1121,27 +1122,27 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 // 修改为使用新的API端点
                 var progressRequest = new RestRequest($"/status/{taskId}", Method.Get);
                 var progressResponse = await client.ExecuteAsync(progressRequest);
-                
+
                 if (progressResponse.IsSuccessful)
                 {
                     var progressObject = JsonSerializer.Deserialize<Dictionary<string, object>>(progressResponse.Content);
-                    
+
                     if (progressObject != null && progressObject.ContainsKey("progress"))
                     {
                         var progress = double.Parse(progressObject["progress"].ToString());
-                        
+
                         MainThread.BeginInvokeOnMainThread(() =>
                         {
                             // MIDI3D返回的进度是0到1的范围，直接使用即可
                             Midi3DProgressBar.Progress = progress;
                             StatusMessage.Text = $"🧊 3D reconstruction progress: {progress * 100:F1}%";
                         });
-                        
+
                         // 检查任务是否已完成（progress=1表示完成）
                         bool isCompleted = progress >= 1;
                         string status = progressObject.ContainsKey("status") ? progressObject["status"].ToString() : "";
                         bool isStatusCompleted = status == "completed";
-                        
+
                         // 如果任务已完成（通过progress或status判断）
                         if (isCompleted || isStatusCompleted)
                         {
@@ -1152,7 +1153,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                 Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
                                 Midi3DSpinner.IsRunning = false;   // 停止环形进度条
                             });
-                            
+
                             // 如果有model_url，下载模型
                             if (progressObject.ContainsKey("model_url"))
                             {
@@ -1163,7 +1164,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                     await DownloadAndOutputModel(taskId, modelUrl, client);
                                 });
                             }
-                            
+
                             shouldExit = true;
                         }
                     }
@@ -1174,7 +1175,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                         {
                             StatusMessage.Text = $"🧊 3D reconstruction status: {status}";
                         });
-                        
+
                         // 检查任务是否已完成，如果完成则下载模型文件
                         if (status == "completed")
                         {
@@ -1185,7 +1186,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                 Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
                                 Midi3DSpinner.IsRunning = false;   // 停止环形进度条
                             });
-                            
+
                             // 如果有model_url，下载模型
                             if (progressObject.ContainsKey("model_url"))
                             {
@@ -1196,7 +1197,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                                     await DownloadAndOutputModel(taskId, modelUrl, client);
                                 });
                             }
-                            
+
                             shouldExit = true;
                         }
                         else if (status == "failed")
@@ -1214,7 +1215,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                         }
                     }
                 }
-                
+
                 // 等待一段时间再轮询
                 await Task.Delay(1000);
             }
@@ -1252,29 +1253,29 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                 Midi3DSpinner.IsVisible = true;    // 显示环形进度条
                 Midi3DSpinner.IsRunning = true;    // 启动环形进度条
             });
-            
+
             // 构建完整的模型下载URL
             var fullModelUrl = modelUrl.StartsWith("http") ? modelUrl : $"http://127.0.0.1:8000{modelUrl}";
-            
+
             // 创建输出目录
             string outputDir = Path.Combine(Path.GetTempPath(), "MIDI3D_Models");
             if (!Directory.Exists(outputDir))
             {
                 Directory.CreateDirectory(outputDir);
             }
-            
+
             // 创建文件路径
             string filePath = Path.Combine(outputDir, $"{taskId}.glb");
-            
+
             // 下载文件
             var downloadRequest = new RestRequest(fullModelUrl, Method.Get);
             var downloadResponse = await client.ExecuteAsync(downloadRequest);
-            
+
             if (downloadResponse.IsSuccessful)
             {
                 // 保存文件
                 await File.WriteAllBytesAsync(filePath, downloadResponse.RawBytes);
-                
+
                 // 输出文件路径到标准输出，供Blender插件读取
                 Console.WriteLine($"MIDI3D_MODEL_PATH:{filePath}");
                 MainThread.BeginInvokeOnMainThread(() =>
@@ -1284,6 +1285,10 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
                     Midi3DSpinner.IsVisible = false;   // 隐藏环形进度条
                     Midi3DSpinner.IsRunning = false;   // 停止环形进度条
                 });
+
+                // 等待0.1秒后自动关闭程序，并将焦点切回Blender
+                await Task.Delay(100);
+                SwitchFocusToBlenderAndClose();
             }
             else
             {
@@ -1353,7 +1358,7 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
     private void ClearSelections()
     {
         selections.Clear();
-        
+
         // 从 OverlayLayout 中移除所有已完成的选框
         foreach (var box in completedBoxes)
         {
@@ -1363,6 +1368,59 @@ public partial class MainPage : ContentPage, INotifyPropertyChanged
             }
         }
         completedBoxes.Clear();
+    }
+
+#if WINDOWS
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+[System.Runtime.InteropServices.DllImport("user32.dll")]
+private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+private const uint WM_CLOSE = 0x0010;
+#endif
+
+/// <summary>
+/// 将焦点切换回Blender并关闭当前应用程序
+/// </summary>
+private void SwitchFocusToBlenderAndClose()
+{
+#if WINDOWS
+    try
+    {
+        // 查找Blender窗口
+        IntPtr blenderHWnd = FindWindow("Blender", null);
+        if (blenderHWnd != IntPtr.Zero)
+        {
+            // 将焦点设置到Blender窗口
+            SetForegroundWindow(blenderHWnd);
+        }
+
+        // 关闭当前应用程序窗口
+        if (this.Window != null && this.Window.Handler?.PlatformView is Microsoft.UI.Xaml.Window platformWindow)
+        {
+            IntPtr windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(platformWindow);
+            PostMessage(windowHandle, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+        }
+        else
+        {
+            // 如果无法获取窗口句柄，直接退出应用
+            Application.Current.Quit();
+        }
+    }
+    catch (Exception ex)
+    {
+        System.Diagnostics.Debug.WriteLine($"Error switching focus to Blender: {ex.Message}");
+        // 如果有任何错误，直接关闭应用程序
+        Application.Current.Quit();
+    }
+#else
+    // 对于非Windows平台，直接关闭应用程序
+    Application.Current.Quit();
+#endif
     }
 }
 
@@ -1406,4 +1464,6 @@ public class BoundingBox
     public int y1 { get; set; }
     public int x2 { get; set; }
     public int y2 { get; set; }
+
+
 }
