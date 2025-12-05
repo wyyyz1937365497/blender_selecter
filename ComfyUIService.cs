@@ -309,8 +309,9 @@ namespace blender_selecter
         /// <param name="workflow">工作流字典</param>
         /// <param name="newPrompt">新的提示文本</param>
         /// <param name="imageName">图片名称</param>
+        /// <param name="negativePrompt">负面提示词（可选）</param>
         /// <returns>修改后的工作流</returns>
-        public Dictionary<string, object> ReplacePromptInWorkflow(Dictionary<string, object> workflow, string newPrompt, string imageName = null)
+        public Dictionary<string, object> ReplacePromptInWorkflow(Dictionary<string, object> workflow, string newPrompt, string imageName = null, string negativePrompt = "")
         {
             try
             {
@@ -355,6 +356,29 @@ namespace blender_selecter
                                     if (inputs != null && inputs.ContainsKey("image"))
                                     {
                                         inputs["image"] = imageName;
+                                        nodeDict["inputs"] = inputs;
+                                    }
+                                }
+
+                                // 特别处理 Qwen Image Edit 模型的 TextEncodeQwenImageEditPlus 节点
+                                if (classType == "TextEncodeQwenImageEditPlus" && nodeDict.ContainsKey("inputs"))
+                                {
+                                    var inputs = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                                        JsonSerializer.Serialize(nodeDict["inputs"]));
+
+                                    if (inputs != null && inputs.ContainsKey("prompt"))
+                                    {
+                                        // 对于节点110（负面提示词），使用negativePrompt
+                                        if (nodeEntry.Key == "110")
+                                        {
+                                            inputs["prompt"] = negativePrompt;
+                                        }
+                                        // 对于节点111（正面提示词），使用newPrompt
+                                        else if (nodeEntry.Key == "111")
+                                        {
+                                            inputs["prompt"] = newPrompt;
+                                        }
+
                                         nodeDict["inputs"] = inputs;
                                     }
                                 }

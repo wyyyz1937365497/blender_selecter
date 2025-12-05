@@ -1,7 +1,7 @@
 {
   "3": {
     "inputs": {
-      "seed": 1095597041915836,
+      "seed": 477315547380083,
       "steps": 4,
       "cfg": 1,
       "sampler_name": "euler",
@@ -116,7 +116,7 @@
   },
   "78": {
     "inputs": {
-      "image": "00_rgb.png"
+      "image": "image_qwen_image_edit_2509_input_image.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -176,7 +176,7 @@
   },
   "111": {
     "inputs": {
-      "prompt": "replace the dog with a cat",
+      "prompt": "",
       "clip": [
         "38",
         0

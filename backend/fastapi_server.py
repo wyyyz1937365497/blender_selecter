@@ -379,14 +379,19 @@ def load_midi_model():
 
         print("MIDI model loaded successfully with chunked weights.")
 
-def load_mv_adapter():
+def load_mv_adapter(lcm=False):
     """Load MV-Adapter models on demand"""
     global ig2mv_pipe, texture_pipe, models_loaded
 
     if not models_loaded["mv_adapter"]:
         print("Loading MV-Adapter models...")
 
-        ig2mv_pipe = prepare_ig2mv_pipeline(device="cuda", dtype=torch.float16)
+        # 传递lcm参数
+        ig2mv_pipe = prepare_ig2mv_pipeline(
+            device="cuda", 
+            dtype=torch.float16, 
+            lcm=lcm
+        )
         texture_pipe = prepare_texture_pipeline(device="cuda", dtype=torch.float16)
         models_loaded["mv_adapter"] = True
 
@@ -483,7 +488,8 @@ def process_image_to_3d(
     boxes: Optional[List[Any]] = None,  # Changed to Any to handle both dict and list formats
     labels: Optional[str] = None,
     polygon_refinement: bool = True,
-    detect_threshold: float = 0.3
+    detect_threshold: float = 0.3,
+    lcm: bool = False
 ):
     """Process an image to generate a 3D model with textures - Gradio style"""
     global object_detector, sam_processor, sam_segmentator, pipe, ig2mv_pipe, texture_pipe, models_loaded
@@ -623,7 +629,7 @@ def process_image_to_3d(
 
         # Load MV-Adapter models
         update_task_status(task_id, "processing", "Loading texture generation models...", 0.7)
-        load_mv_adapter()
+        load_mv_adapter(lcm)
 
         # Apply textures - 使用Gradio的torch.no_grad()模式
         update_task_status(task_id, "processing", "Applying textures to 3D model...", 0.8)
@@ -643,6 +649,7 @@ def process_image_to_3d(
                 seg_map_pil,
                 seed=42,  # Fixed seed for reproducibility
                 output_dir=tmp_dir,
+                lcm=lcm
             )
 
         # Export the final textured model
@@ -711,12 +718,6 @@ def get_memory_info_str():
     
     return "\n".join(info)
 
-
-@app.get("/")
-async def root():
-    """Root endpoint to check API status"""
-    return {"message": "MIDI-3D API is running", "status": "active"}
-
 @app.post("/process", response_model=ProcessResponse)
 async def process_image(
     background_tasks: BackgroundTasks, 
@@ -725,7 +726,8 @@ async def process_image(
     boxes_json: Optional[str] = Form(None),
     labels: Optional[str] = Form(None),
     polygon_refinement: bool = Form(True),
-    detect_threshold: float = Form(0.3)
+    detect_threshold: float = Form(0.3),
+    lcm: bool = Form(False)  # 新增LCM参数
 ):
     """Process an uploaded image to generate a 3D model with textures
 
@@ -821,7 +823,8 @@ async def process_image(
         formatted_boxes,  # 使用修正后的三层嵌套格式
         labels, 
         polygon_refinement, 
-        detect_threshold
+        detect_threshold,
+        lcm
     )
 
     # Return the task ID and status URL
